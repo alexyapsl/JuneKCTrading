@@ -1,0 +1,443 @@
+[
+  {
+    "name": "Galaxy S26 Ultra",
+    "baseCode": "SM-S9480",
+    "url": "https://www.samsung.com/hk/smartphones/galaxy-s26-ultra/buy/",
+    "storageOptions": [
+      {
+        "storage": "1TB+16GB",
+        "price": 13798,
+        "colors": [
+          {
+            "name": "Black",
+            "sku": "SM-S9480ZKPTGY",
+            "price": 13798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "1TB+16GB",
+        "price": 13798,
+        "colors": [
+          {
+            "name": "Sky Blue",
+            "sku": "SM-S9480LBPTGY",
+            "price": 13798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "1TB+16GB",
+        "price": 13798,
+        "colors": [
+          {
+            "name": "Cobalt Violet",
+            "sku": "SM-S9480ZVPTGY",
+            "price": 13798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "1TB+16GB",
+        "price": 13798,
+        "colors": [
+          {
+            "name": "Pink Gold",
+            "sku": "SM-S9480ZDPTGY",
+            "price": 13798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "1TB+16GB",
+        "price": 13798,
+        "colors": [
+          {
+            "name": "Silver Shadow",
+            "sku": "SM-S9480ZSPTGY",
+            "price": 13798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 11798,
+        "colors": [
+          {
+            "name": "Black",
+            "sku": "SM-S9480ZKOTGY",
+            "price": 11798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 11798,
+        "colors": [
+          {
+            "name": "Sky Blue",
+            "sku": "SM-S9480LBOTGY",
+            "price": 11798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 11798,
+        "colors": [
+          {
+            "name": "Cobalt Violet",
+            "sku": "SM-S9480ZVOTGY",
+            "price": 11798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 11798,
+        "colors": [
+          {
+            "name": "White",
+            "sku": "SM-S9480ZWOTGY",
+            "price": 11798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 11798,
+        "colors": [
+          {
+            "name": "Pink Gold",
+            "sku": "SM-S9480ZDOTGY",
+            "price": 11798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 11798,
+        "colors": [
+          {
+            "name": "Silver Shadow",
+            "sku": "SM-S9480ZSOTGY",
+            "price": 11798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 10198,
+        "colors": [
+          {
+            "name": "Black",
+            "sku": "SM-S9480ZKITGY",
+            "price": 10198,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 10198,
+        "colors": [
+          {
+            "name": "Sky Blue",
+            "sku": "SM-S9480LBITGY",
+            "price": 10198,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 10198,
+        "colors": [
+          {
+            "name": "Cobalt Violet",
+            "sku": "SM-S9480ZVITGY",
+            "price": 10198,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 10198,
+        "colors": [
+          {
+            "name": "White",
+            "sku": "SM-S9480ZWITGY",
+            "price": 10198,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 10198,
+        "colors": [
+          {
+            "name": "Pink Gold",
+            "sku": "SM-S9480ZDITGY",
+            "price": 10198,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 10198,
+        "colors": [
+          {
+            "name": "Silver Shadow",
+            "sku": "SM-S9480ZSITGY",
+            "price": 10198,
+            "inStock": false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Galaxy Z Fold7",
+    "baseCode": "SM-F9660",
+    "url": "https://www.samsung.com/hk/smartphones/galaxy-z-fold7/buy/",
+    "storageOptions": [
+      {
+        "storage": "1TB+16GB",
+        "price": 17998,
+        "colors": [
+          {
+            "name": "Blue Shadow",
+            "sku": "SM-F9660DBHTGY",
+            "price": 17998,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "1TB+16GB",
+        "price": 17998,
+        "colors": [
+          {
+            "name": "Jetblack",
+            "sku": "SM-F9660ZKHTGY",
+            "price": 17998,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 16798,
+        "colors": [
+          {
+            "name": "Blue Shadow",
+            "sku": "SM-F9660DBGTGY",
+            "price": 16798,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 16798,
+        "colors": [
+          {
+            "name": "Silver Shadow",
+            "sku": "SM-F9660ZSGTGY",
+            "price": 16798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 16798,
+        "colors": [
+          {
+            "name": "Jetblack",
+            "sku": "SM-F9660ZKGTGY",
+            "price": 16798,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 16798,
+        "colors": [
+          {
+            "name": "Mint",
+            "sku": "SM-F9660LGGTGY",
+            "price": 16798,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 14438,
+        "colors": [
+          {
+            "name": "Blue Shadow",
+            "sku": "SM-F9660DBDTGY",
+            "price": 14438,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 14438,
+        "colors": [
+          {
+            "name": "Silver Shadow",
+            "sku": "SM-F9660ZSDTGY",
+            "price": 14438,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 14438,
+        "colors": [
+          {
+            "name": "Jetblack",
+            "sku": "SM-F9660ZKDTGY",
+            "price": 14438,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 14438,
+        "colors": [
+          {
+            "name": "Mint",
+            "sku": "SM-F9660LGDTGY",
+            "price": 14438,
+            "inStock": true
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Galaxy Z Flip7",
+    "baseCode": "SM-F7660",
+    "url": "https://www.samsung.com/hk/smartphones/galaxy-z-flip7/buy/",
+    "storageOptions": [
+      {
+        "storage": "512GB+12GB",
+        "price": 8998,
+        "colors": [
+          {
+            "name": "Blue Shadow",
+            "sku": "SM-F7660DBETGY",
+            "price": 8998,
+            "inStock": true
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 8998,
+        "colors": [
+          {
+            "name": "Jetblack",
+            "sku": "SM-F7660ZKETGY",
+            "price": 8998,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 8998,
+        "colors": [
+          {
+            "name": "Coralred",
+            "sku": "SM-F7660ZRETGY",
+            "price": 8998,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "512GB+12GB",
+        "price": 8998,
+        "colors": [
+          {
+            "name": "Mint",
+            "sku": "SM-F7660LGETGY",
+            "price": 8998,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 5998,
+        "colors": [
+          {
+            "name": "Blue Shadow",
+            "sku": "SM-F7660DBATGY",
+            "price": 5998,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 5998,
+        "colors": [
+          {
+            "name": "Jetblack",
+            "sku": "SM-F7660ZKATGY",
+            "price": 5998,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 5998,
+        "colors": [
+          {
+            "name": "Coralred",
+            "sku": "SM-F7660ZRATGY",
+            "price": 5998,
+            "inStock": false
+          }
+        ]
+      },
+      {
+        "storage": "256GB+12GB",
+        "price": 5998,
+        "colors": [
+          {
+            "name": "Mint",
+            "sku": "SM-F7660LGATGY",
+            "price": 5998,
+            "inStock": false
+          }
+        ]
+      }
+    ]
+  }
+]
