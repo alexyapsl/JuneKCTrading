@@ -45,15 +45,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 USERNAME   = os.getenv("IG_USERNAME")
-PASSWORD   = ***"IG_PASSWORD")
-API_KEY    = ***"IG_API_KEY")
+PASSWORD   = os.getenv("IG_PASSWORD")
+API_KEY    = os.getenv("IG_API_KEY")
 ACC_TYPE   = os.getenv("IG_ACC_TYPE", "DEMO")
 
 EPIC             = "IX.D.DOW.IFS.IP"
 RESOLUTION       = "1MINUTE"          # IG native resolution
 TARGET_MINUTES   = 3                  # Target candle size
 
-LOG_DIR = Path("logs")
+# Always write logs to the project root (JuneKCTrading/logs/)
+# regardless of where the script is executed from
+LOG_DIR = Path(__file__).parent.parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 # Logging configuration

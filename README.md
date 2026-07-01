@@ -52,10 +52,12 @@ IG_ACC_TYPE=DEMO          # or LIVE
 
 ### 3. Run the streamer
 
-```bash
-cd src
-python ig_dow_candle_stream.py
+```powershell
+cd C:\Users\alexy\.openclaw\workspace\JuneKCTrading
+py src\ig_dow_candle_stream.py
 ```
+
+> **Important:** The OHLC candles are built using **Offer (Ask)** prices as primary, with **Bid** as fallback when Offer is unavailable.
 
 The script will:
 - Connect to IG Streaming API
