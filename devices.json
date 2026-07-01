@@ -1,0 +1,515 @@
+[
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-F7410",
+    "model": "Galaxy Z Flip6",
+    "storage": "512GB",
+    "recommendation1": "Galaxy Z Flip7",
+    "recommendation2": "",
+    "standardPrice": 3800,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 50
+    },
+    "gti": {
+      "SM-S9480": 0,
+      "SM-F9660": 4000,
+      "SM-F7660": 4000
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-F7310",
+    "model": "Galaxy Z Flip5",
+    "storage": "512GB",
+    "recommendation1": "Galaxy Z Flip7",
+    "recommendation2": "",
+    "standardPrice": 1800,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 50
+    },
+    "gti": {
+      "SM-S9480": 0,
+      "SM-F9660": 2000,
+      "SM-F7660": 2000
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-F7210",
+    "model": "Galaxy Z Flip4",
+    "storage": "512GB",
+    "recommendation1": "Galaxy Z Flip7",
+    "recommendation2": "",
+    "standardPrice": 1100,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 50
+    },
+    "gti": {
+      "SM-S9480": 0,
+      "SM-F9660": 1300,
+      "SM-F7660": 1300
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-F9560",
+    "model": "Galaxy Z Fold6",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 7700,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 7900,
+      "SM-F9660": 7900,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-F9460",
+    "model": "Galaxy Z Fold5",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 3300,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 3500,
+      "SM-F9660": 3500,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-F9360",
+    "model": "Galaxy Z Fold4",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 2100,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 2300,
+      "SM-F9660": 2300,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-F9560",
+    "model": "Galaxy Z Fold6",
+    "storage": "512GB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 7700,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 7900,
+      "SM-F9660": 7900,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-F9460",
+    "model": "Galaxy Z Fold5",
+    "storage": "512GB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 3300,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 3500,
+      "SM-F9660": 3500,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-F9360",
+    "model": "Galaxy Z Fold4",
+    "storage": "512GB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 2100,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 2300,
+      "SM-F9660": 2300,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-S7110",
+    "model": "Galaxy S23 FE",
+    "storage": "128GB",
+    "recommendation1": "Galaxy Z Flip7",
+    "recommendation2": "",
+    "standardPrice": 900,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 0,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-S7110",
+    "model": "Galaxy S23 FE",
+    "storage": "256GB",
+    "recommendation1": "Galaxy Z Flip7",
+    "recommendation2": "",
+    "standardPrice": 1000,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 0,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-S9110",
+    "model": "Galaxy S23",
+    "storage": "512GB",
+    "recommendation1": "Galaxy Z Flip7",
+    "recommendation2": "",
+    "standardPrice": 1900,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 0,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-S9210",
+    "model": "Galaxy S24",
+    "storage": "512GB",
+    "recommendation1": "Galaxy Z Flip7",
+    "recommendation2": "",
+    "standardPrice": 2800,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 50
+    },
+    "gti": {
+      "SM-S9480": 3000,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-S9160",
+    "model": "Galaxy S23+",
+    "storage": "512GB",
+    "recommendation1": "Galaxy Z Flip7",
+    "recommendation2": "",
+    "standardPrice": 2100,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 50
+    },
+    "gti": {
+      "SM-S9480": 2300,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-S9260",
+    "model": "Galaxy S24+",
+    "storage": "512GB",
+    "recommendation1": "Galaxy Z Flip7",
+    "recommendation2": "",
+    "standardPrice": 3300,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 150,
+      "SM-F7660": 50
+    },
+    "gti": {
+      "SM-S9480": 3500,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-S9180",
+    "model": "Galaxy S23 Ultra",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 4400,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 4600,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-S9280",
+    "model": "Galaxy S24 Ultra",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 5900,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 6100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Samsung",
+    "tradeInBaseCode": "SM-S9380",
+    "model": "Galaxy S25 Ultra",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 6500,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 6700,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Apple",
+    "tradeInBaseCode": "A1920",
+    "model": "iPhone XS",
+    "storage": "256GB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 1500,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 1700,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Apple",
+    "tradeInBaseCode": "A1920",
+    "model": "iPhone XS",
+    "storage": "512GB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 2000,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 2200,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Apple",
+    "tradeInBaseCode": "A1920",
+    "model": "iPhone XS",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 3000,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 3200,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Apple",
+    "tradeInBaseCode": "A3294",
+    "model": "iPhone 16 Pro",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 6600,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 6800,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Apple",
+    "tradeInBaseCode": "A3104",
+    "model": "iPhone 15 Pro",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 4400,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 4600,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Apple",
+    "tradeInBaseCode": "A2892",
+    "model": "iPhone 14 Pro",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 3000,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 3200,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Apple",
+    "tradeInBaseCode": "A2896",
+    "model": "iPhone 14 Pro Max",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 3700,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 3900,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Apple",
+    "tradeInBaseCode": "A3108",
+    "model": "iPhone 15 Pro Max",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 5300,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 5500,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  },
+  {
+    "brand": "Apple",
+    "tradeInBaseCode": "A3297",
+    "model": "iPhone 16 Pro Max",
+    "storage": "1TB",
+    "recommendation1": "Galaxy S26 Ultra",
+    "recommendation2": "Galaxy Z Fold7",
+    "standardPrice": 7300,
+    "eti": {
+      "SM-S9480": 100,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    },
+    "gti": {
+      "SM-S9480": 7500,
+      "SM-F9660": 0,
+      "SM-F7660": 0
+    }
+  }
+]
