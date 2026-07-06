@@ -10,13 +10,17 @@ Production-grade IG Markets streaming client for building 3-minute OHLC candles 
 - Proper `SubscriptionListener` implementation (tested and working)
 - Graceful shutdown handling
 - Structured logging (console + file)
+- **Keltner Channel calculator** with incremental (real-time) updates
+- Live runner that streams candles + computes KC on the fly
 
 ## Project Structure
 
 ```
 JuneKCTrading/
 ├── src/
-│   └── ig_dow_candle_stream.py      # Main production streamer
+│   ├── ig_dow_candle_stream.py      # Main production streamer
+│   └── keltner.py                   # Keltner Channel calculator (EMA + Wilder ATR)
+├── run_kc_live.py                 # Live runner: streams candles + computes KC in real time
 ├── docs/
 │   └── HOW_TO_PUSH_TO_GITHUB.md
 ├── logs/                            # Daily JSONL files (gitignored)
@@ -50,7 +54,22 @@ IG_API_KEY=your_api_key
 IG_ACC_TYPE=DEMO          # or LIVE
 ```
 
-### 3. Run the streamer
+### 3. Run the live KC runner (recommended)
+
+This runs the streamer + Keltner Channel calculator together:
+
+```powershell
+cd C:\Users\alexy\.openclaw\workspace\JuneKCTrading
+py run_kc_live.py
+```
+
+It will:
+- Stream 3-minute Dow candles from IG in real time
+- Compute Keltner Channels (period=13, multiplier=1.6 by default)
+- Log both bar + KC values to `logs/kc_YYYY-MM-DD.jsonl`
+- Auto-reconnect if the Lightstreamer connection drops
+
+### 4. Run the streamer only
 
 ```powershell
 cd C:\Users\alexy\.openclaw\workspace\JuneKCTrading
