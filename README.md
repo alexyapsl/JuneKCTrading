@@ -76,6 +76,25 @@ cd C:\Users\alexy\.openclaw\workspace\JuneKCTrading
 py src\ig_dow_candle_stream.py
 ```
 
+### 5. Visualize logs
+
+After running the live KC runner (or streamer), you can visualize the Keltner Channel + candlesticks:
+
+```powershell
+cd C:\Users\alexy\.openclaw\workspace\JuneKCTrading
+py scripts/plot_kc.py                    # latest kc_*.jsonl, interactive HTML
+py scripts/plot_kc.py logs/kc_2026-07-06.jsonl
+py scripts/plot_kc.py --export png      # also save static PNG
+```
+
+Install the required packages once:
+
+```bash
+pip install pandas plotly kaleido
+```
+
+Generated plots are saved to `results/` (gitignored).
+
 > **Important:** The OHLC candles are built using **Offer (Ask)** prices as primary, with **Bid** as fallback when Offer is unavailable.
 
 The script will:

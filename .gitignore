@@ -28,6 +28,8 @@ wheels/
 logs/
 *.log
 *.jsonl
+results/
+plots/
 
 # IDE / OS
 .idea/
