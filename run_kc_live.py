@@ -10,7 +10,7 @@ Just run:
 It will:
 - Stream bars continuously (with auto-reconnect)
 - Compute KC (period=13, multiplier=1.6 by default)
-- Log both bar + KC values to logs/kc_YYYY-MM-DD.jsonl
+- Log both bar + KC values to logs/kc_YYYY-Www.jsonl (weekly, full US session)
 - Print clean output to console
 
 Requirements:
@@ -162,8 +162,9 @@ class KeltnerChannel:
 
 # ====================== JSONL HELPERS ======================
 def get_log_filename(bucket: datetime, prefix: str = "kc") -> Path:
-    date_str = bucket.strftime("%Y-%m-%d")
-    return LOG_DIR / f"{prefix}_{date_str}.jsonl"
+    y, w, _ = bucket.isocalendar()
+    week_str = f"{y}-W{w:02d}"
+    return LOG_DIR / f"{prefix}_{week_str}.jsonl"
 
 
 def append_jsonl(filepath: Path, record: dict):
