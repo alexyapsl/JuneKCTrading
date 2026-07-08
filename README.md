@@ -82,10 +82,23 @@ After running the live KC runner (or streamer), you can visualize the Keltner Ch
 
 ```powershell
 cd C:\Users\alexy\.openclaw\workspace\JuneKCTrading
-py scripts/plot_kc.py                    # latest kc_*.jsonl, interactive HTML
-py scripts/plot_kc.py logs/kc_2026-07-06.jsonl
-py scripts/plot_kc.py --export png      # also save static PNG
+py scripts/plot_kc.py                              # latest kc_*.jsonl, interactive HTML
+py scripts/plot_kc.py logs/kc_2026-W28.jsonl
+py scripts/plot_kc.py --export png                  # also save static PNG
+
+# Filter to a specific US trading day (ET timezone)
+py scripts/plot_kc.py --date 2026-07-08            # US trading session only (09:30–16:00 ET)
+py scripts/plot_kc.py --date 2026-07-08 --full-day  # Full US Eastern calendar day (00:00–23:59 ET)
 ```
+
+The `--date` filter uses **US Eastern Time (ET)**:
+
+- `--date 2026-07-08` → only the **regular trading session** (09:30–16:00 ET)
+- `--date 2026-07-08 --full-day` → the **entire calendar day** in New York time (00:00–23:59 ET / EDT)
+
+Both modes correctly convert the requested window from Eastern Time to UTC when filtering the log files. Output filenames are automatically suffixed with the date (e.g. `kc_2026-W28_2026-07-08.html`).
+
+Plots are saved to the `results/` folder.
 
 Install the required packages once:
 
@@ -139,4 +152,4 @@ Internal use for JuneKCTrading project.
 
 ---
 
-*Last updated: 2026-07-01*
+*Last updated: 2026-07-09*
