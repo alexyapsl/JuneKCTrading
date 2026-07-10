@@ -10,7 +10,7 @@ Just run:
 It will:
 - Stream bars continuously (with auto-reconnect)
 - Compute KC (period=13, multiplier=1.6 by default)
-- Log both bar + KC values to logs/kc_YYYY-Www.jsonl (weekly, full US session)
+- Log both bar + KC values to logs/experiments/<config_id>/kc_YYYY-Www.jsonl
 - Print clean output to console
 
 Requirements:
@@ -25,7 +25,10 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.signal_detector import Signal
 
 from trading_ig import IGService, IGStreamService
 from lightstreamer.client import Subscription as LSSubscription, SubscriptionListener
@@ -34,6 +37,18 @@ from dotenv import load_dotenv
 # ====================== CONFIG ======================
 load_dotenv()
 
+from config import CONFIG
+# Import signal detector (works when running as script from project root)
+try:
+    from src.signal_detector import SignalDetector, Signal
+except ModuleNotFoundError:
+    import sys
+    sys.path.append(str(Path(__file__).parent))
+    from src.signal_detector import SignalDetector, Signal
+
+# Ensure experiment directories exist on import
+CONFIG.ensure_dirs()
+
 USERNAME   = os.getenv("IG_USERNAME")
 PASSWORD   = os.getenv("IG_PASSWORD")
 API_KEY    = os.getenv("IG_API_KEY")
@@ -41,22 +56,22 @@ ACC_TYPE   = os.getenv("IG_ACC_TYPE", "DEMO")
 
 EPIC             = "IX.D.DOW.IFS.IP"
 RESOLUTION       = "1MINUTE"
-TARGET_MINUTES   = 3
-
-KC_PERIOD        = 13
-KC_MULTIPLIER    = 1.6
 
 HEARTBEAT_MINUTES = 15   # Print a heartbeat to terminal (not log) every N minutes
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
+# Experiment-specific log directory (logs/experiments/<config_id>/)
+EXP_LOG_DIR = CONFIG.experiment_dir
+EXP_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(LOG_DIR / "kc_stream.log", encoding="utf-8")
+        logging.FileHandler(EXP_LOG_DIR / "kc_stream.log", encoding="utf-8")
     ]
 )
 logger = logging.getLogger(__name__)
@@ -162,9 +177,10 @@ class KeltnerChannel:
 
 # ====================== JSONL HELPERS ======================
 def get_log_filename(bucket: datetime, prefix: str = "kc") -> Path:
+    """Return path inside the experiment directory (logs/experiments/<config_id>/)."""
     y, w, _ = bucket.isocalendar()
     week_str = f"{y}-W{w:02d}"
-    return LOG_DIR / f"{prefix}_{week_str}.jsonl"
+    return EXP_LOG_DIR / f"{prefix}_{week_str}.jsonl"
 
 
 def append_jsonl(filepath: Path, record: dict):
@@ -176,11 +192,12 @@ def append_jsonl(filepath: Path, record: dict):
 # ====================== CANDLE AGGREGATION + KC ======================
 current_candles = {}
 last_bucket = None
-kc = KeltnerChannel(period=KC_PERIOD, multiplier=KC_MULTIPLIER)
+kc = KeltnerChannel(period=CONFIG.kc_period, multiplier=CONFIG.kc_multiplier)
+detector = SignalDetector()
 
 
 def get_3min_bucket(dt: datetime) -> datetime:
-    minute = (dt.minute // TARGET_MINUTES) * TARGET_MINUTES
+    minute = (dt.minute // CONFIG.bar_minutes) * CONFIG.bar_minutes
     return dt.replace(minute=minute, second=0, microsecond=0, tzinfo=timezone.utc)
 
 
@@ -212,22 +229,42 @@ def process_1min_candle(values: dict):
 
             kc_values = kc.update(bar)
 
+            # === Signal Detection ===
+            signal_obj: Optional[Signal] = detector.check(bar, kc_values)
+            signal_payload = None
+            if signal_obj:
+                signal_payload = {
+                    "signal_id": signal_obj.signal_id,
+                    "direction": signal_obj.direction,
+                    "entry_price": signal_obj.entry_price,
+                    "stop_loss": signal_obj.stop_loss,
+                    "experiment_name": signal_obj.experiment_name,
+                    "config_id": signal_obj.config_id,
+                }
+                logger.info(
+                    f"[SIGNAL] {signal_obj.direction} | entry={signal_obj.entry_price:.2f} "
+                    f"stop={signal_obj.stop_loss:.2f} | {signal_obj.experiment_name}"
+                )
+
             record = {
                 "timestamp_utc": last_bucket.isoformat(),
                 "open": prev["open"],
                 "high": prev["high"],
                 "low": prev["low"],
                 "close": prev["close"],
-                "resolution": f"{TARGET_MINUTES}min",
+                "resolution": f"{CONFIG.bar_minutes}min",
                 "epic": EPIC,
                 "kc": {
                     "mid": kc_values.mid,
                     "upper": kc_values.upper,
                     "lower": kc_values.lower,
                     "atr": kc_values.atr,
-                    "period": KC_PERIOD,
-                    "multiplier": KC_MULTIPLIER,
-                }
+                    "period": CONFIG.kc_period,
+                    "multiplier": CONFIG.kc_multiplier,
+                },
+                "signal": signal_payload,          # None or signal dict
+                "experiment_name": CONFIG.experiment_name,
+                "config_id": CONFIG.config_id,
             }
 
             log_file = get_log_filename(last_bucket)
@@ -326,7 +363,12 @@ def main():
         logger.error("Missing IG credentials in .env file")
         return
 
-    logger.info(f"3-min bars + KC (period={KC_PERIOD}, mult={KC_MULTIPLIER}) → logs/kc_*.jsonl")
+    # Persist the exact config for this experiment run
+    config_file = EXP_LOG_DIR / "experiment_config.json"
+    config_file.write_text(json.dumps(CONFIG.as_dict(), indent=2), encoding="utf-8")
+    logger.info(f"Experiment config saved → {config_file}")
+
+    logger.info(f"{CONFIG.bar_minutes}-min bars + KC (period={CONFIG.kc_period}, mult={CONFIG.kc_multiplier}) → {EXP_LOG_DIR}")
     logger.info("Auto-reconnect enabled. Press Ctrl+C to stop.\n")
     print(f"[HEARTBEAT] Every {HEARTBEAT_MINUTES} minutes to terminal only (not logged).\n", flush=True)
 

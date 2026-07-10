@@ -4,6 +4,9 @@ KC Log Visualizer
 
 Plots Keltner Channel (upper/mid/lower) + candlesticks from kc_*.jsonl logs.
 
+When the log file lives under logs/experiments/<config_id>/ (or contains a config_id field),
+charts are automatically saved to results/experiments/<config_id>/ instead of the top-level results/ folder.
+
 Usage:
     python scripts/plot_kc.py                              # latest log, interactive HTML
     python scripts/plot_kc.py logs/kc_2026-07-06.jsonl
@@ -26,6 +29,47 @@ try:
     from zoneinfo import ZoneInfo
 except ImportError:
     from pytz import timezone as ZoneInfo  # fallback for older Python
+
+
+# === Experiment-aware output helpers ===
+def detect_config_id(log_path: Path, df: pd.DataFrame | None = None) -> str | None:
+    """
+    Try to determine the experiment config_id from:
+    1. The parent directory name if we're inside logs/experiments/<config_id>/
+    2. The first record's 'config_id' field in the loaded dataframe
+    Returns None if it can't be reliably detected.
+    """
+    # 1. Check if log lives under logs/experiments/<something>/
+    parent = log_path.parent
+    if parent.parent.name == "experiments":
+        cid = parent.name
+        if cid and cid.lower() not in ("nan", "none", "null"):
+            return cid
+
+    # 2. Fall back to the config_id stored inside the data
+    if df is not None and not df.empty and "config_id" in df.columns:
+        cid = df["config_id"].iloc[0]
+        # Guard against pandas NaN, None, empty, or the literal string "nan"
+        if pd.notna(cid):
+            cid_str = str(cid).strip()
+            if cid_str and cid_str.lower() not in ("nan", "none", "null"):
+                return cid_str
+    return None
+
+
+def get_results_dir(config_id: str | None) -> Path:
+    """
+    Return the appropriate results directory.
+    If we have a config_id, use results/experiments/<config_id>/
+    Otherwise fall back to the top-level results/ folder.
+    """
+    base = Path(__file__).parent.parent / "results"
+    if config_id:
+        target = base / "experiments" / config_id
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+    base.mkdir(exist_ok=True)
+    return base
 
 
 def find_latest_log() -> Path:
@@ -59,6 +103,9 @@ def load_kc_log(path: Path) -> pd.DataFrame:
     df["kc_upper"] = df["kc"].apply(lambda x: x["upper"])
     df["kc_lower"] = df["kc"].apply(lambda x: x["lower"])
     df["atr"] = df["kc"].apply(lambda x: x.get("atr"))
+    # Keep experiment metadata if present (so detect_config_id can use it)
+    # Do NOT blindly astype(str) — that turns NaN into the literal string "nan"
+    # which then gets treated as a valid config_id and creates a folder named nan.
     return df
 
 
@@ -200,8 +247,14 @@ def main():
     title = f"Keltner Channel — {log_path.stem} ({df['kc'].iloc[0]['period']} period × {df['kc'].iloc[0]['multiplier']})"
     fig = create_figure(df, title)
 
-    out_dir = Path(__file__).parent.parent / "results"
-    out_dir.mkdir(exist_ok=True)
+    # Determine experiment-aware output folder
+    config_id = detect_config_id(log_path, df)
+    out_dir = get_results_dir(config_id)
+
+    if config_id:
+        print(f"Experiment detected (config_id={config_id}) → writing to {out_dir}")
+    else:
+        print(f"No experiment config detected → writing to top-level {out_dir}")
 
     if args.export in ("html", "both"):
         html_path = out_dir / f"{base}.html"
