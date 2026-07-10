@@ -6,12 +6,10 @@ Production-grade IG Markets streaming client for building 3-minute OHLC candles 
 
 - Streams real-time 1-minute OHLC data via IG's Lightstreamer API
 - Aggregates into **3-minute candles**
-- **Daily rotating JSONL logs** — safe for 24/7 operation
-- Proper `SubscriptionListener` implementation (tested and working)
-- Graceful shutdown handling
-- Structured logging (console + file)
 - **Keltner Channel calculator** with incremental (real-time) updates
 - Live runner that streams candles + computes KC on the fly
+- **Experiment tracking** — all runs are automatically grouped by config hash
+- Charts and logs are routed to per-experiment folders for clean A/B testing
 
 ## Project Structure
 
@@ -19,11 +17,18 @@ Production-grade IG Markets streaming client for building 3-minute OHLC candles 
 JuneKCTrading/
 ├── src/
 │   ├── ig_dow_candle_stream.py      # Main production streamer
-│   └── keltner.py                   # Keltner Channel calculator (EMA + Wilder ATR)
+│   ├── keltner.py                   # Keltner Channel calculator (EMA + Wilder ATR)
+│   └── signal_detector.py           # Signal detection logic (entry/stop rules)
+├── scripts/
+│   └── plot_kc.py                   # Visualization tool (auto-routes to experiment folders)
 ├── run_kc_live.py                 # Live runner: streams candles + computes KC in real time
+├── config.py                      # ExperimentConfig — single source of truth for parameters
 ├── docs/
 │   └── HOW_TO_PUSH_TO_GITHUB.md
-├── logs/                            # Daily JSONL files (gitignored)
+├── logs/
+│   └── experiments/               # Per-experiment output (see below)
+├── results/
+│   └── experiments/               # Per-experiment charts (see below)
 ├── .env.example
 ├── .gitignore
 └── README.md
@@ -65,9 +70,12 @@ py run_kc_live.py
 
 It will:
 - Stream 3-minute Dow candles from IG in real time
-- Compute Keltner Channels (period=13, multiplier=1.6 by default)
-- Log both bar + KC values to `logs/kc_YYYY-MM-DD.jsonl`
+- Compute Keltner Channels using parameters from `config.py`
+- Automatically create an experiment folder: `logs/experiments/<config_id>/`
+- Write `experiment_config.json`, `kc_stream.log`, and weekly JSONL inside it
 - Auto-reconnect if the Lightstreamer connection drops
+
+Each run is tagged with a deterministic `config_id` (short hash of all parameters). Changing any setting (period, multiplier, offsets, etc.) produces a new folder so experiments stay cleanly separated.
 
 ### 4. Run the streamer only
 
@@ -98,7 +106,11 @@ The `--date` filter uses **US Eastern Time (ET)**:
 
 Both modes correctly convert the requested window from Eastern Time to UTC when filtering the log files. Output filenames are automatically suffixed with the date (e.g. `kc_2026-W28_2026-07-08.html`).
 
-Plots are saved to the `results/` folder.
+**Experiment-aware chart routing:**
+
+- If the log file lives under `logs/experiments/<config_id>/` (or contains a `config_id` field), charts are automatically saved to `results/experiments/<config_id>/`.
+- Old logs without experiment metadata fall back to the top-level `results/` folder.
+- This keeps every experiment's HTML/PNG outputs cleanly isolated.
 
 Install the required packages once:
 
@@ -106,15 +118,29 @@ Install the required packages once:
 pip install pandas plotly kaleido
 ```
 
-Generated plots are saved to `results/` (gitignored).
+Generated plots are saved to `results/experiments/<config_id>/` when an experiment is detected (gitignored).
 
 > **Important:** The OHLC candles are built using **Offer (Ask)** prices as primary, with **Bid** as fallback when Offer is unavailable.
 
-The script will:
-- Connect to IG Streaming API
-- Subscribe to `CHART:IX.D.DOW.IFS.IP:1MINUTE`
-- Build 3-minute candles in real time
-- Append completed candles to `logs/dow_3min_YYYY-MM-DD.jsonl`
+## Experiment Tracking & Folder Structure
+
+All runs are now automatically grouped by a deterministic `config_id` (8-character hash of the full parameter set).
+
+### How it works
+
+1. `config.py` defines a single `ExperimentConfig` dataclass (period, multiplier, offsets, bar size, version, etc.).
+2. On every start, `run_kc_live.py` calls `CONFIG.ensure_dirs()` which creates:
+   - `logs/experiments/<config_id>/`
+   - `results/experiments/<config_id>/`
+3. Inside the experiment folder you will find:
+   - `experiment_config.json` — exact parameter snapshot for reproducibility
+   - `kc_stream.log` — full console + error output for this run
+   - `kc_2026-Wxx.jsonl` — the actual 3-minute bars + KC values + any detected signals
+4. When you run `scripts/plot_kc.py` on a log inside an experiment folder, charts are written to the matching `results/experiments/<config_id>/` folder.
+
+This design makes A/B testing trivial: change any parameter in `config.py`, restart the runner, and everything lands in a brand-new folder.
+
+**Fallback behavior:** Logs that pre-date the experiment system (or lack a `config_id`) are routed to the top-level `logs/` and `results/` folders.
 
 ## Log Format (JSONL)
 
