@@ -57,10 +57,25 @@ except Exception:
 # Ensure experiment directories exist on import
 CONFIG.ensure_dirs()
 
-USERNAME   = os.getenv("IG_USERNAME")
-PASSWORD   = os.getenv("IG_PASSWORD")
-API_KEY    = os.getenv("IG_API_KEY")
-ACC_TYPE   = os.getenv("IG_ACC_TYPE", "DEMO")
+# Unified credential resolution (Phase 1)
+# Prefers accountX.env.demo/live files. Falls back to legacy .env if not found.
+try:
+    from src.account_resolver import resolve_credentials
+    _ACCOUNT_CREDS = resolve_credentials(
+        account_name=CONFIG.account_name,
+        paper_trading=CONFIG.paper_trading
+    )
+    USERNAME = _ACCOUNT_CREDS["username"]
+    PASSWORD = _ACCOUNT_CREDS["password"]
+    API_KEY  = _ACCOUNT_CREDS["api_key"]
+    ACC_TYPE = _ACCOUNT_CREDS["acc_type"]
+    logger.info(f"[CREDENTIALS] Using account '{CONFIG.account_name}' (paper_trading={CONFIG.paper_trading}) -> {_ACCOUNT_CREDS.get('credential_file')}")
+except Exception as e:
+    logger.warning(f"AccountResolver failed ({e}), falling back to legacy .env")
+    USERNAME = os.getenv("IG_USERNAME")
+    PASSWORD = os.getenv("IG_PASSWORD")
+    API_KEY  = os.getenv("IG_API_KEY")
+    ACC_TYPE = os.getenv("IG_ACC_TYPE", "DEMO")
 
 EPIC             = "IX.D.DOW.IFS.IP"
 RESOLUTION       = "1MINUTE"
@@ -379,7 +394,7 @@ def main():
     logger.info("=== KC Live Runner (Bars + Keltner Channels) ===")
 
     if not all([USERNAME, PASSWORD, API_KEY]):
-        logger.error("Missing IG credentials in .env file")
+        logger.error("Missing IG credentials (checked accountX.env.* and .env)")
         return
 
     # Persist the exact config for this experiment run

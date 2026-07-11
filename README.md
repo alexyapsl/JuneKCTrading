@@ -64,7 +64,8 @@ IG_API_KEY=your_demo_api_key
 IG_ACC_TYPE=DEMO
 ```
 
-The old single `.env` file is still supported for the streamer-only mode, but **order execution requires the new `accountX.env.*` files**.
+**Both price streaming and order execution now use the same `accountX.env.*` files.**
+The legacy single `.env` file is only used as a fallback if the account file cannot be found.
 
 **Key `config.py` settings** (order execution):
 
