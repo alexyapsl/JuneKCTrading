@@ -57,6 +57,21 @@ except Exception:
 # Ensure experiment directories exist on import
 CONFIG.ensure_dirs()
 
+# Experiment-specific log directory (must exist before we configure logging)
+EXP_LOG_DIR = CONFIG.experiment_dir
+EXP_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Logging must be configured BEFORE any logger usage
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(EXP_LOG_DIR / "kc_stream.log", encoding="utf-8")
+    ]
+)
+logger = logging.getLogger(__name__)
+
 # Unified credential resolution (Phase 1)
 # Prefers accountX.env.demo/live files. Falls back to legacy .env if not found.
 try:
@@ -84,20 +99,6 @@ HEARTBEAT_MINUTES = 15   # Print a heartbeat to terminal (not log) every N minut
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
-
-# Experiment-specific log directory (logs/experiments/<config_id>/)
-EXP_LOG_DIR = CONFIG.experiment_dir
-EXP_LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(EXP_LOG_DIR / "kc_stream.log", encoding="utf-8")
-    ]
-)
-logger = logging.getLogger(__name__)
 
 
 # ====================== DATA CLASSES ======================
