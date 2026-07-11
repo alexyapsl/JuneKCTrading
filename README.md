@@ -120,6 +120,21 @@ pip install pandas plotly kaleido
 
 Generated plots are saved to `results/experiments/<config_id>/` when an experiment is detected (gitignored).
 
+### Signal Markers on Charts
+
+`plot_kc.py` automatically renders detected trading signals:
+
+- **▼ black** — SHORT signal (placed 8 points above the candle high)
+- **▲ black** — LONG signal (placed 8 points below the candle low)
+
+Hover over any marker to see:
+- Signal direction
+- Entry price
+- Stop-loss price
+- Signal ID
+
+If a log file contains no signals, the chart renders normally with no markers. This makes it easy to visually validate signal logic against the Keltner Channel bands and candle action.
+
 > **Important:** The OHLC candles are built using **Offer (Ask)** prices as primary, with **Bid** as fallback when Offer is unavailable.
 
 ## Experiment Tracking & Folder Structure
