@@ -46,6 +46,14 @@ except ModuleNotFoundError:
     sys.path.append(str(Path(__file__).parent))
     from src.signal_detector import SignalDetector, Signal
 
+# Phase 1 – Order execution (conditional import so existing runs still work)
+ORDER_MANAGER_AVAILABLE = False
+try:
+    from src.order_manager import OrderManager
+    ORDER_MANAGER_AVAILABLE = True
+except Exception:
+    ORDER_MANAGER_AVAILABLE = False  # Will initialize later if needed
+
 # Ensure experiment directories exist on import
 CONFIG.ensure_dirs()
 
@@ -245,6 +253,17 @@ def process_1min_candle(values: dict):
                     f"[SIGNAL] {signal_obj.direction} | entry={signal_obj.entry_price:.2f} "
                     f"stop={signal_obj.stop_loss:.2f} | {signal_obj.experiment_name}"
                 )
+
+                # === Phase 1: Order Placement ===
+                if ORDER_MANAGER_AVAILABLE:
+                    try:
+                        # Lazy-init OrderManager on first signal
+                        if "order_manager" not in globals():
+                            global order_manager
+                            order_manager = OrderManager(experiment_dir=CONFIG.experiment_dir)
+                        order_manager.place(signal_obj, kc_values)
+                    except Exception as e:
+                        logger.error(f"[ORDER] Failed to process signal: {e}")
 
             record = {
                 "timestamp_utc": last_bucket.isoformat(),

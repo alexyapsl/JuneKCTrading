@@ -42,21 +42,37 @@ JuneKCTrading/
 pip install trading-ig python-dotenv lightstreamer-client
 ```
 
-### 2. Configure credentials
+### 2. Configure credentials (Phase 1 Order Execution)
 
-Copy the example file and fill in your IG account details:
+**Phase 1 introduced a multi-account credential system.** Instead of a single `.env` file, you now use per-account files:
 
-```bash
-cp .env.example .env
+```
+account1.env.demo          # Account 1 – Demo
+account1.env.live          # Account 1 – Live
+account2.env.demo          # Account 2 – Demo
+account2.env.live          # Account 2 – Live
 ```
 
-Edit `.env`:
+**Location**: Place these files either in the project root or in an `accounts/` folder.
+
+**Example file content** (`account1.env.demo`):
 
 ```env
-IG_USERNAME=your_username
+IG_USERNAME=your_demo_username
 IG_PASSWORD=your_password
-IG_API_KEY=your_api_key
-IG_ACC_TYPE=DEMO          # or LIVE
+IG_API_KEY=your_demo_api_key
+IG_ACC_TYPE=DEMO
+```
+
+The old single `.env` file is still supported for the streamer-only mode, but **order execution requires the new `accountX.env.*` files**.
+
+**Key `config.py` settings** (order execution):
+
+```python
+account_name="account1"     # Which account files to use
+paper_trading=True          # True = demo, False = live
+size=1.0                    # £ per point
+min_risk_reward=1.5         # Minimum RR to place order
 ```
 
 ### 3. Run the live KC runner (recommended)

@@ -29,6 +29,14 @@ class ExperimentConfig:
     stop_offset: float = 3.0       # points beyond opposite extreme for stop loss
     offset_mode: Literal["points", "atr_multiple"] = "points"
 
+    # === Order Execution (Phase 1) ===
+    account_name: str = "account1"          # Which account credential set to use
+    paper_trading: bool = True              # True -> use .demo credentials, False -> .live
+    size: float = 1.0                       # Position size in £ per point
+    min_risk_reward: float = 1.5            # Minimum acceptable RR ratio at signal time
+    pending_bar_timeout: int = 3            # Cancel working order after N bars
+    filled_bar_timeout: int = 10            # Close filled position at market after N bars
+
     # === Experiment Identity (auto-generated) ===
     version: int = 1
     experiment_name: str = field(init=False, repr=False)
@@ -61,6 +69,10 @@ class ExperimentConfig:
             "entry_offset": self.entry_offset,
             "stop_offset": self.stop_offset,
             "offset_mode": self.offset_mode,
+            "account_name": self.account_name,
+            "paper_trading": self.paper_trading,
+            "size": self.size,
+            "min_risk_reward": self.min_risk_reward,
             "version": self.version,
         }
         raw = json.dumps(key, sort_keys=True).encode("utf-8")
@@ -75,6 +87,12 @@ class ExperimentConfig:
             "entry_offset": self.entry_offset,
             "stop_offset": self.stop_offset,
             "offset_mode": self.offset_mode,
+            "account_name": self.account_name,
+            "paper_trading": self.paper_trading,
+            "size": self.size,
+            "min_risk_reward": self.min_risk_reward,
+            "pending_bar_timeout": self.pending_bar_timeout,
+            "filled_bar_timeout": self.filled_bar_timeout,
             "version": self.version,
             "experiment_name": self.experiment_name,
             "config_id": self.config_id,
