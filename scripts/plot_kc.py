@@ -103,6 +103,27 @@ def load_kc_log(path: Path) -> pd.DataFrame:
     df["kc_upper"] = df["kc"].apply(lambda x: x["upper"])
     df["kc_lower"] = df["kc"].apply(lambda x: x["lower"])
     df["atr"] = df["kc"].apply(lambda x: x.get("atr"))
+
+    # Extract signal info (signal may be null or a dict)
+    def _extract_signal(row):
+        sig = row.get("signal")
+        if sig and isinstance(sig, dict):
+            return pd.Series({
+                "signal_direction": sig.get("direction"),
+                "signal_entry": sig.get("entry_price"),
+                "signal_stop": sig.get("stop_loss"),
+                "signal_id": sig.get("signal_id"),
+            })
+        return pd.Series({
+            "signal_direction": None,
+            "signal_entry": None,
+            "signal_stop": None,
+            "signal_id": None,
+        })
+
+    signal_df = df.apply(_extract_signal, axis=1)
+    df = pd.concat([df, signal_df], axis=1)
+
     # Keep experiment metadata if present (so detect_config_id can use it)
     # Do NOT blindly astype(str) — that turns NaN into the literal string "nan"
     # which then gets treated as a valid config_id and creates a folder named nan.
@@ -158,6 +179,40 @@ def create_figure(df: pd.DataFrame, title: str) -> go.Figure:
             line=dict(color="#9C27B0", width=1.5),
             name="ATR"
         ), row=2, col=1)
+
+    # === Signal Markers ===
+    shorts = df[df["signal_direction"] == "SHORT"]
+    longs = df[df["signal_direction"] == "LONG"]
+
+    if not shorts.empty:
+        # Place SHORT marker just above the candle high (small fixed gap for readability)
+        short_y = shorts["high"] + 8      # 8 points above the high
+        fig.add_trace(go.Scatter(
+            x=shorts["timestamp"],
+            y=short_y,
+            mode="markers",
+            marker=dict(symbol="triangle-down", size=13, color="black", line=dict(width=1, color="#333333")),
+            name="SHORT Signal",
+            hovertext=shorts.apply(
+                lambda r: f"SHORT<br>Entry: {r['signal_entry']}<br>Stop: {r['signal_stop']}<br>ID: {r['signal_id']}", axis=1
+            ),
+            hoverinfo="text+x+y"
+        ), row=1, col=1)
+
+    if not longs.empty:
+        # Place LONG marker just below the candle low (small fixed gap for readability)
+        long_y = longs["low"] - 8       # 8 points below the low
+        fig.add_trace(go.Scatter(
+            x=longs["timestamp"],
+            y=long_y,
+            mode="markers",
+            marker=dict(symbol="triangle-up", size=13, color="black", line=dict(width=1, color="#333333")),
+            name="LONG Signal",
+            hovertext=longs.apply(
+                lambda r: f"LONG<br>Entry: {r['signal_entry']}<br>Stop: {r['signal_stop']}<br>ID: {r['signal_id']}", axis=1
+            ),
+            hoverinfo="text+x+y"
+        ), row=1, col=1)
 
     fig.update_layout(
         xaxis_rangeslider_visible=False,
@@ -252,19 +307,19 @@ def main():
     out_dir = get_results_dir(config_id)
 
     if config_id:
-        print(f"Experiment detected (config_id={config_id}) → writing to {out_dir}")
+        print(f"Experiment detected (config_id={config_id}) -> writing to {out_dir}")
     else:
-        print(f"No experiment config detected → writing to top-level {out_dir}")
+        print(f"No experiment config detected -> writing to top-level {out_dir}")
 
     if args.export in ("html", "both"):
         html_path = out_dir / f"{base}.html"
         fig.write_html(html_path, include_plotlyjs="cdn")
-        print(f"✓ Saved interactive HTML → {html_path}")
+        print(f"[OK] Saved interactive HTML -> {html_path}")
 
     if args.export in ("png", "both"):
         png_path = out_dir / f"{base}.png"
         fig.write_image(png_path, width=1400, height=900, scale=2)
-        print(f"✓ Saved PNG → {png_path}")
+        print(f"[OK] Saved PNG -> {png_path}")
 
     if args.export == "html":
         fig.show()
