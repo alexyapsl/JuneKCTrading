@@ -78,9 +78,9 @@ class IGRestClient:
 
         try:
             self.ig_service = IGService(
-                ig_username=self.creds["username"],
-                ig_password=self.creds["password"],
-                ig_api_key=self.creds["api_key"],
+                username=self.creds["username"],
+                password=self.creds["password"],
+                api_key=self.creds["api_key"],
                 acc_type=self.creds["acc_type"],
             )
             self.ig_service.create_session()
