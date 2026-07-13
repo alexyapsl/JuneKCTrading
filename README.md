@@ -103,17 +103,22 @@ py src\ig_dow_candle_stream.py
 
 ### 5. Visualize logs
 
-After running the live KC runner (or streamer), you can visualize the Keltner Channel + candlesticks:
+After running the live KC runner, you can visualize the Keltner Channel + candlesticks. All logs now live under the experiment folder:
 
 ```powershell
 cd C:\Users\alexy\.openclaw\workspace\JuneKCTrading
-py scripts/plot_kc.py                              # latest kc_*.jsonl, interactive HTML
-py scripts/plot_kc.py logs/kc_2026-W28.jsonl
-py scripts/plot_kc.py --export png                  # also save static PNG
 
-# Filter to a specific US trading day (ET timezone)
-py scripts/plot_kc.py --date 2026-07-08            # US trading session only (09:30–16:00 ET)
-py scripts/plot_kc.py --date 2026-07-08 --full-day  # Full US Eastern calendar day (00:00–23:59 ET)
+# Recommended: plot the current week's experiment (auto-detects latest)
+py scripts/plot_kc.py
+
+# Or plot a specific week + export PNG
+py scripts/plot_kc.py logs/experiments/a17c7521/kc_2026-W29.jsonl --export png
+
+# Filter to US trading session only (09:30–16:00 ET)
+py scripts/plot_kc.py logs/experiments/a17c7521/kc_2026-W29.jsonl --date 2026-07-13
+
+# Full calendar day (00:00–23:59 ET)
+py scripts/plot_kc.py logs/experiments/a17c7521/kc_2026-W29.jsonl --date 2026-07-13 --full-day
 ```
 
 The `--date` filter uses **US Eastern Time (ET)**:
