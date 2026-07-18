@@ -27,7 +27,7 @@ class ExperimentConfig:
     # === Signal Rules (configurable for experimentation) ===
     entry_offset: float = 3.0      # points above signal high (long) or below signal low (short)
     stop_offset: float = 3.0       # points beyond opposite extreme for stop loss
-    offset_mode: Literal["points", "atr_multiple"] = "points"
+    offset_mode: Literal["points", "atr_multiple"] = "points"  # "atr_multiple" uses stop_offset as multiplier of ATR
 
     # === Order Execution (Phase 1) ===
     account_name: str = "account1"          # Which account credential set to use

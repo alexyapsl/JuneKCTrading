@@ -256,6 +256,7 @@ def process_1min_candle(values: dict):
             # === Signal Detection ===
             signal_obj: Optional[Signal] = detector.check(bar, kc_values)
             signal_payload = None
+            execution = None   # Always defined (Tier 1)
             if signal_obj:
                 signal_payload = {
                     "signal_id": signal_obj.signal_id,
@@ -270,14 +271,14 @@ def process_1min_candle(values: dict):
                     f"stop={signal_obj.stop_loss:.2f} | {signal_obj.experiment_name}"
                 )
 
-                # === Phase 1: Order Placement ===
+                # === Phase 1: Order Placement + Tier 1 execution enrichment ===
                 if ORDER_MANAGER_AVAILABLE:
                     try:
                         # Lazy-init OrderManager on first signal
                         if "order_manager" not in globals():
                             global order_manager
                             order_manager = OrderManager(experiment_dir=CONFIG.experiment_dir)
-                        order_manager.place(signal_obj, kc_values)
+                        execution = order_manager.place(signal_obj, kc_values)
                     except Exception as e:
                         logger.error(f"[ORDER] Failed to process signal: {e}")
 
@@ -298,6 +299,7 @@ def process_1min_candle(values: dict):
                     "multiplier": CONFIG.kc_multiplier,
                 },
                 "signal": signal_payload,          # None or signal dict
+                "execution": execution,            # Tier 1: execution outcome (ACCEPTED / REJECTED / IGNORED_RR / ...)
                 "experiment_name": CONFIG.experiment_name,
                 "config_id": CONFIG.config_id,
             }

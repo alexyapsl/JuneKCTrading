@@ -8,7 +8,7 @@ When the log file lives under logs/experiments/<config_id>/ (or contains a confi
 charts are automatically saved to results/experiments/<config_id>/ instead of the top-level results/ folder.
 
 Usage:
-    python scripts/plot_kc.py                              # latest log, interactive HTML
+    python scripts/plot_kc.py                              # latest log (top-level or any experiment), interactive HTML
     python scripts/plot_kc.py logs/kc_2026-07-06.jsonl
     python scripts/plot_kc.py --date 2026-07-08           # US trading session only (09:30–16:00 ET)
     python scripts/plot_kc.py --date 2026-07-08 --full-day  # Full US Eastern calendar day (00:00–23:59 ET)
@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import json
+import re
 from datetime import datetime, time
 from pathlib import Path
 import sys
@@ -74,10 +75,15 @@ def get_results_dir(config_id: str | None) -> Path:
 
 def find_latest_log() -> Path:
     logs_dir = Path(__file__).parent.parent / "logs"
-    candidates = sorted(logs_dir.glob("kc_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    # Search both top-level logs/ and all experiment subfolders
+    candidates = []
+    candidates.extend(logs_dir.glob("kc_*.jsonl"))
+    candidates.extend(logs_dir.glob("experiments/*/*.jsonl"))
     if not candidates:
-        print("No kc_*.jsonl files found in logs/")
+        print("No kc_*.jsonl files found in logs/ or logs/experiments/")
         sys.exit(1)
+    # Sort by mtime so the most recently written file wins
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0]
 
 
@@ -98,45 +104,170 @@ def load_kc_log(path: Path) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["timestamp"] = pd.to_datetime(df["timestamp_utc"])
     df = df.sort_values("timestamp").reset_index(drop=True)
-    # Flatten KC fields for easy access
-    df["kc_mid"] = df["kc"].apply(lambda x: x["mid"])
-    df["kc_upper"] = df["kc"].apply(lambda x: x["upper"])
-    df["kc_lower"] = df["kc"].apply(lambda x: x["lower"])
-    df["atr"] = df["kc"].apply(lambda x: x.get("atr"))
 
-    # Extract signal info (signal may be null or a dict)
-    def _extract_signal(row):
-        sig = row.get("signal")
-        if sig and isinstance(sig, dict):
-            return pd.Series({
-                "signal_direction": sig.get("direction"),
-                "signal_entry": sig.get("entry_price"),
-                "signal_stop": sig.get("stop_loss"),
-                "signal_id": sig.get("signal_id"),
-            })
-        return pd.Series({
-            "signal_direction": None,
-            "signal_entry": None,
-            "signal_stop": None,
-            "signal_id": None,
-        })
+    # Flatten signal fields for easier access in plotting
+    if "signal" in df.columns:
+        sig_df = df["signal"].apply(lambda x: x if isinstance(x, dict) else {})
+        df["signal_id"] = sig_df.apply(lambda x: x.get("signal_id"))
+        df["signal_direction"] = sig_df.apply(lambda x: x.get("direction"))
+        df["signal_entry"] = sig_df.apply(lambda x: x.get("entry_price"))
+        df["signal_stop"] = sig_df.apply(lambda x: x.get("stop_loss"))
+        # NEW: include KC context that was missing from older signal records
+        df["signal_kc_upper"] = sig_df.apply(lambda x: x.get("kc_upper"))
+        df["signal_kc_lower"] = sig_df.apply(lambda x: x.get("kc_lower"))
+    else:
+        df["signal_id"] = None
+        df["signal_direction"] = None
+        df["signal_entry"] = None
+        df["signal_stop"] = None
+        df["signal_kc_upper"] = None
+        df["signal_kc_lower"] = None
 
-    signal_df = df.apply(_extract_signal, axis=1)
-    df = pd.concat([df, signal_df], axis=1)
+    # Flatten KC fields (the original JSONL stores them nested under "kc")
+    if "kc" in df.columns:
+        kc_df = df["kc"].apply(lambda x: x if isinstance(x, dict) else {})
+        df["kc_mid"] = kc_df.apply(lambda x: x.get("mid"))
+        df["kc_upper"] = kc_df.apply(lambda x: x.get("upper"))
+        df["kc_lower"] = kc_df.apply(lambda x: x.get("lower"))
+        df["atr"] = kc_df.apply(lambda x: x.get("atr"))
+    else:
+        df["kc_mid"] = None
+        df["kc_upper"] = None
+        df["kc_lower"] = None
+        df["atr"] = None
 
-    # Keep experiment metadata if present (so detect_config_id can use it)
-    # Do NOT blindly astype(str) — that turns NaN into the literal string "nan"
-    # which then gets treated as a valid config_id and creates a folder named nan.
     return df
 
 
-def create_figure(df: pd.DataFrame, title: str) -> go.Figure:
+# === Execution status (Tier 1 + fallback) ===
+
+STATUS_COLORS = {
+    "IGNORED_RR": "#9E9E9E",      # grey
+    "DUPLICATE": "#9E9E9E",
+    "ATTEMPTED": "#FF9800",       # orange
+    "REJECTED": "#F44336",        # red
+    "ACCEPTED": "#4CAF50",        # green
+    "UNKNOWN": "#607D8B",         # blue-grey
+}
+
+STATUS_LABELS = {
+    "IGNORED_RR": "Ignored (RR < 1.5)",
+    "DUPLICATE": "Duplicate",
+    "ATTEMPTED": "Order Sent",
+    "REJECTED": "Rejected by IG",
+    "ACCEPTED": "Entered (live)",
+    "UNKNOWN": "Unknown",
+}
+
+
+def build_execution_lookup(df: pd.DataFrame, log_path: Path) -> dict:
+    """
+    Tier 2: Build a signal_id -> execution info lookup.
+
+    Priority 1: Use the 'execution' column written by the runner (Tier 1).
+    Priority 2: Fall back to parsing kc_stream.log for older files.
+    """
+    lookup = {}
+
+    # === Tier 1: execution field inside the JSONL ===
+    if "execution" in df.columns:
+        for _, row in df.iterrows():
+            sig_id = row.get("signal_id")
+            exec_data = row.get("execution")
+            if pd.isna(sig_id) or not isinstance(exec_data, dict):
+                continue
+            lookup[sig_id] = {
+                "status": exec_data.get("status", "UNKNOWN"),
+                "deal_id": exec_data.get("deal_id"),
+                "rr": exec_data.get("rr"),
+                "reason": exec_data.get("reason"),
+                "deal_reference": exec_data.get("deal_reference"),
+                # NEW: market distance and snapshot for rejection analysis
+                "entry_distance_points": exec_data.get("entry_distance_points"),
+                "market_price_snapshot": exec_data.get("market_price_snapshot"),
+                "ig_description": exec_data.get("ig_description") or exec_data.get("reason"),
+            }
+
+    if lookup:
+        return lookup
+
+    # === Fallback (legacy files without execution field) ===
+    return parse_stream_log_fallback(log_path)
+
+
+def parse_stream_log_fallback(log_path: Path) -> dict:
+    """
+    Legacy parser for old runs that only have kc_stream.log.
+    """
+    stream_log = log_path.parent / "kc_stream.log"
+    if not stream_log.exists():
+        return {}
+
+    lookup = {}
+    signal_pattern = re.compile(r"sig_\d{8}_\d{4}_(long|short)")
+    deal_pattern = re.compile(r"'dealId':\s*'([^']+)'")
+    rr_pattern = re.compile(r"RR=([0-9.]+)")
+    reason_pattern = re.compile(r"'reason':\s*'([^']+)'")
+
+    with open(stream_log, encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            if "[OrderManager]" not in line and "[SIGNAL]" not in line:
+                continue
+
+            sig_match = signal_pattern.search(line)
+            if not sig_match:
+                continue
+            sig_id = sig_match.group(0)
+
+            status = "UNKNOWN"
+            deal_id = None
+            rr = None
+            reason = None
+
+            if "rejected: RR=" in line:
+                status = "IGNORED_RR"
+                m = rr_pattern.search(line)
+                if m:
+                    rr = float(m.group(1))
+            elif "Working order placed for" in line:
+                status = "ATTEMPTED"
+                m = rr_pattern.search(line)
+                if m:
+                    rr = float(m.group(1))
+            elif "dealStatus" in line or "ATTACHED_ORDER_LEVEL_ERROR" in line:
+                if "REJECTED" in line or "ATTACHED_ORDER_LEVEL_ERROR" in line:
+                    status = "REJECTED"
+                    m = reason_pattern.search(line)
+                    if m:
+                        reason = m.group(1)
+                elif "ACCEPTED" in line or "OPEN" in line:
+                    status = "ACCEPTED"
+                m = deal_pattern.search(line)
+                if m:
+                    deal_id = m.group(1)
+
+            lookup[sig_id] = {
+                "status": status,
+                "deal_id": deal_id,
+                "rr": rr,
+                "reason": reason,
+            }
+
+    return lookup
+
+
+def get_signal_status(sig_id: str, exec_lookup: dict) -> dict:
+    if not sig_id or sig_id not in exec_lookup:
+        return {"status": "UNKNOWN", "deal_id": None, "rr": None, "reason": None}
+    return exec_lookup[sig_id]
+
+
+def create_figure(df: pd.DataFrame, title: str, exec_lookup: dict) -> go.Figure:
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.02,
-        row_heights=[0.75, 0.25],
-        subplot_titles=(title, "ATR")
+        vertical_spacing=0.06,
+        row_heights=[0.75, 0.25]
     )
 
     # Candlestick
@@ -180,47 +311,75 @@ def create_figure(df: pd.DataFrame, title: str) -> go.Figure:
             name="ATR"
         ), row=2, col=1)
 
-    # === Signal Markers ===
-    shorts = df[df["signal_direction"] == "SHORT"]
-    longs = df[df["signal_direction"] == "LONG"]
+    # === Signal Markers (color-coded by execution status) ===
+    signals = df[df["signal_id"].notna()].copy()
+    if signals.empty:
+        # fallback: old behaviour if no signal column
+        signals = df
 
-    if not shorts.empty:
-        # Place SHORT marker just above the candle high (small fixed gap for readability)
-        short_y = shorts["high"] + 8      # 8 points above the high
+    for _, row in signals.iterrows():
+        if pd.isna(row.get("signal_id")):
+            continue
+
+        info = get_signal_status(row["signal_id"], exec_lookup)
+        color = STATUS_COLORS.get(info["status"], "#607D8B")
+        label = STATUS_LABELS.get(info["status"], "Unknown")
+
+        y_pos = row["high"] + 8 if row["signal_direction"] == "SHORT" else row["low"] - 8
+        symbol = "triangle-down" if row["signal_direction"] == "SHORT" else "triangle-up"
+
+        hover = (
+            f"{row['signal_direction']}<br>"
+            f"Entry: {row['signal_entry']}<br>"
+            f"Stop: {row['signal_stop']}<br>"
+            f"ID: {row['signal_id']}<br>"
+            f"Status: {label}"
+        )
+        if info.get("rr") is not None:
+            hover += f"<br>RR: {info['rr']}"
+        if info.get("deal_id"):
+            hover += f"<br><b>dealId: {info['deal_id']}</b>"
+        if info.get("entry_distance_points") is not None:
+            hover += f"<br>Market distance: {info['entry_distance_points']} pts"
+        if info.get("ig_description"):
+            hover += f"<br><b>IG: {info['ig_description']}</b>"
+        elif info.get("reason"):
+            hover += f"<br>Reason: {info['reason']}"
+        # NEW: show planned TP vs entry when available (wrong-side detection)
+        if row.get("signal_kc_upper") and row.get("signal_direction") == "LONG":
+            hover += f"<br>Planned TP (KC upper): {row['signal_kc_upper']}"
+        if row.get("signal_kc_lower") and row.get("signal_direction") == "SHORT":
+            hover += f"<br>Planned TP (KC lower): {row['signal_kc_lower']}"
+
         fig.add_trace(go.Scatter(
-            x=shorts["timestamp"],
-            y=short_y,
+            x=[row["timestamp"]],
+            y=[y_pos],
             mode="markers",
-            marker=dict(symbol="triangle-down", size=13, color="black", line=dict(width=1, color="#333333")),
-            name="SHORT Signal",
-            hovertext=shorts.apply(
-                lambda r: f"SHORT<br>Entry: {r['signal_entry']}<br>Stop: {r['signal_stop']}<br>ID: {r['signal_id']}", axis=1
-            ),
-            hoverinfo="text+x+y"
+            marker=dict(symbol=symbol, size=15, color=color, line=dict(width=1, color="#333333")),
+            name=label,
+            hovertext=hover,
+            hoverinfo="text+x+y",
+            showlegend=False
         ), row=1, col=1)
 
-    if not longs.empty:
-        # Place LONG marker just below the candle low (small fixed gap for readability)
-        long_y = longs["low"] - 8       # 8 points below the low
+    # Legend entries (dummy traces)
+    for status, color in STATUS_COLORS.items():
         fig.add_trace(go.Scatter(
-            x=longs["timestamp"],
-            y=long_y,
+            x=[None], y=[None],
             mode="markers",
-            marker=dict(symbol="triangle-up", size=13, color="black", line=dict(width=1, color="#333333")),
-            name="LONG Signal",
-            hovertext=longs.apply(
-                lambda r: f"LONG<br>Entry: {r['signal_entry']}<br>Stop: {r['signal_stop']}<br>ID: {r['signal_id']}", axis=1
-            ),
-            hoverinfo="text+x+y"
+            marker=dict(symbol="circle", size=10, color=color),
+            name=STATUS_LABELS[status],
+            hoverinfo="skip"
         ), row=1, col=1)
 
     fig.update_layout(
         xaxis_rangeslider_visible=False,
-        height=800,
+        height=900,
         showlegend=True,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         hovermode="x unified",
-        margin=dict(l=60, r=30, t=60, b=40)
+        margin=dict(l=60, r=30, t=80, b=40),
+        title=title
     )
 
     fig.update_yaxes(title_text="Price", row=1, col=1)
@@ -245,6 +404,23 @@ def main():
 
     df = load_kc_log(log_path)
 
+    # Tier 2: Build execution lookup (prefers 'execution' field written by runner)
+    exec_lookup = build_execution_lookup(df, log_path)
+    if exec_lookup:
+        src = "JSONL execution field" if any(isinstance(r.get("execution"), dict) for _, r in df.iterrows() if pd.notna(r.get("signal_id"))) else "kc_stream.log (legacy)"
+        print(f"Loaded execution status for {len(exec_lookup)} signals from {src}")
+    else:
+        print("No execution information found – all signals will be shown as UNKNOWN")
+
+    # NEW: Warn about signals that have no execution record (will appear as UNKNOWN)
+    total_sig = int(df["signal_id"].notna().sum())
+    if total_sig > 0:
+        covered = sum(1 for sid in df[df["signal_id"].notna()]["signal_id"] if sid in exec_lookup)
+        unknown_cnt = total_sig - covered
+        if unknown_cnt > 0:
+            print(f"⚠️  {unknown_cnt} of {total_sig} signals have NO execution record → shown as UNKNOWN (blue-grey triangles)")
+            print("    These signals were detected but OrderManager never recorded a status (import failed, disabled, or pre-order code).")
+
     # Filter by US date if --date is provided
     if args.date:
         try:
@@ -257,6 +433,7 @@ def main():
         try:
             et = ZoneInfo("America/New_York")
             is_pytz = False
+
         except Exception:
             et_tz = ZoneInfo("US/Eastern")
             is_pytz = True
@@ -299,8 +476,15 @@ def main():
         print(f"Loaded {len(df)} bars from {df['timestamp'].min()} to {df['timestamp'].max()}")
         base = args.output or log_path.stem
 
-    title = f"Keltner Channel — {log_path.stem} ({df['kc'].iloc[0]['period']} period × {df['kc'].iloc[0]['multiplier']})"
-    fig = create_figure(df, title)
+    # Safe title (kc column may be nested or missing in filtered data)
+    try:
+        period = df["kc"].iloc[0]["period"]
+        multiplier = df["kc"].iloc[0]["multiplier"]
+    except Exception:
+        period = 13
+        multiplier = 1.6
+    title = f"Keltner Channel — {log_path.stem} ({period} period × {multiplier})"
+    fig = create_figure(df, title, exec_lookup)
 
     # Determine experiment-aware output folder
     config_id = detect_config_id(log_path, df)

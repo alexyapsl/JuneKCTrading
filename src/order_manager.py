@@ -118,32 +118,70 @@ class OrderManager:
     #                           MAIN ENTRY POINT                         #
     # ------------------------------------------------------------------ #
 
-    def place(self, signal: Signal, current_kc: Any) -> Optional[Dict[str, Any]]:
+    def place(self, signal: Signal, current_kc: Any) -> Dict[str, Any]:
         """
         Attempt to place a working order for the given signal.
 
-        Parameters
-        ----------
-        signal : Signal
-            The trading signal from SignalDetector
-        current_kc : KeltnerValues
-            KC values at the time the signal was generated (used for RR check)
+        Always returns a structured execution result so the caller can
+        enrich the JSONL record (Tier 1 design).
 
         Returns
         -------
-        dict or None
-            IG response if order was placed, otherwise None.
+        dict
+            {
+                "status": "IGNORED_RR" | "DUPLICATE" | "ATTEMPTED" | "REJECTED" | "ACCEPTED",
+                "deal_reference": str | None,
+                "deal_id": str | None,
+                "rr": float | None,
+                "reason": str | None,
+                "response": dict | None,   # raw IG response when available
+                "market_price_snapshot": dict | None,   # bid/ask snapshot at decision time
+                "entry_distance_points": float | None # positive = how far market was from our entry
+            }
         """
+        result = {
+            "status": "UNKNOWN",
+            "deal_reference": None,
+            "deal_id": None,
+            "rr": None,
+            "reason": None,
+            "response": None,
+        }
+
         if self._is_duplicate(signal.signal_id):
             logger.info(f"[OrderManager] Skipping duplicate signal: {signal.signal_id}")
-            return None
+            result["status"] = "DUPLICATE"
+            result["reason"] = "duplicate signal_id"
+            return result
 
         rr = self._calculate_risk_reward(signal, current_kc)
+        result["rr"] = rr
+
         if rr < CONFIG.min_risk_reward:
             logger.info(
                 f"[OrderManager] Signal {signal.signal_id} rejected: RR={rr} < {CONFIG.min_risk_reward}"
             )
-            return None
+            result["status"] = "IGNORED_RR"
+            result["reason"] = f"RR < {CONFIG.min_risk_reward}"
+            return result
+
+        # === Market price snapshot at entry decision time (new data collection) ===
+        market_snapshot = None
+        entry_distance = None
+        try:
+            market_snapshot = self.ig_client.fetch_current_price("IX.D.DOW.IFS.IP")
+            # Derive a simple numeric entry distance (we use offer for LONG, bid for SHORT)
+            if isinstance(market_snapshot, dict):
+                if signal.direction == "LONG":
+                    offer = market_snapshot.get("offer") or market_snapshot.get("OFR")
+                    if offer is not None:
+                        entry_distance = round(signal.entry_price - float(offer), 2)
+                else:  # SHORT
+                    bid = market_snapshot.get("bid") or market_snapshot.get("BID")
+                    if bid is not None:
+                        entry_distance = round(float(bid) - signal.entry_price, 2)
+        except Exception as snap_e:
+            logger.warning(f"[OrderManager] Could not fetch market price snapshot: {snap_e}")
 
         # Build direction for IG
         ig_direction = "SELL" if signal.direction == "SHORT" else "BUY"
@@ -159,16 +197,42 @@ class OrderManager:
                 force_open=True,
             )
 
-            # Mark as processed only after successful placement
-            self._mark_processed(signal.signal_id)
+            result["response"] = response
+
+            # Extract common fields from IG response
+            if isinstance(response, dict):
+                result["deal_reference"] = response.get("dealReference")
+                # dealId may be nested under affectedDeals for ACCEPTED orders
+                if response.get("dealId"):
+                    result["deal_id"] = response.get("dealId")
+                elif response.get("affectedDeals"):
+                    try:
+                        result["deal_id"] = response["affectedDeals"][0].get("dealId")
+                    except Exception:
+                        pass
+
+                deal_status = response.get("dealStatus")
+                if deal_status == "ACCEPTED" or response.get("status") == "OPEN":
+                    result["status"] = "ACCEPTED"
+                    self._mark_processed(signal.signal_id)
+                else:
+                    result["status"] = "REJECTED"
+                    result["reason"] = response.get("reason", "broker_rejected")
+            else:
+                result["status"] = "ATTEMPTED"
+                self._mark_processed(signal.signal_id)
 
             logger.info(
-                f"[OrderManager] Working order placed for {signal.signal_id} "
-                f"(RR={rr}, direction={ig_direction})"
-            )
-            return response
+                f"[OrderManager] Working order {result['status']} for {signal.signal_id} "
+                f"(RR={rr}, dealId={result.get('deal_id')})")
+
+            # Attach snapshot/distance data to the result so it appears in the JSONL execution record
+            result["market_price_snapshot"] = market_snapshot
+            result["entry_distance_points"] = entry_distance
+            return result
 
         except Exception as e:
             logger.error(f"[OrderManager] Failed to place order for {signal.signal_id}: {e}")
-            # Do NOT mark as processed on failure – we may want to retry later
-            return None
+            result["status"] = "REJECTED"
+            result["reason"] = str(e)
+            return result

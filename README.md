@@ -10,6 +10,9 @@ Production-grade IG Markets streaming client for building 3-minute OHLC candles 
 - Live runner that streams candles + computes KC on the fly
 - **Experiment tracking** — all runs are automatically grouped by config hash
 - Charts and logs are routed to per-experiment folders for clean A/B testing
+- **Market distance analysis** — automatically records how far the market price was from the planned entry at signal time
+- **Rejection diagnostics** — captures IG rejection reasons (e.g. "Order level too close to market level") for every failed attempt
+- **Interactive charts** show execution status, entry distance, planned TP, and IG rejection messages on hover
 
 ## Project Structure
 
@@ -20,7 +23,9 @@ JuneKCTrading/
 │   ├── keltner.py                   # Keltner Channel calculator (EMA + Wilder ATR)
 │   └── signal_detector.py           # Signal detection logic (entry/stop rules)
 ├── scripts/
-│   └── plot_kc.py                   # Visualization tool (auto-routes to experiment folders)
+│   ├── plot_kc.py                   # Visualization tool with order execution status + rejection analysis
+│   ├── audit_ig_orders_v2.py        # Audit working-order attempts against IG history/activity
+│   └── diagnose_tp_placement.py     # Diagnostic for wrong-side TP detection
 ├── run_kc_live.py                 # Live runner: streams candles + computes KC in real time
 ├── config.py                      # ExperimentConfig — single source of truth for parameters
 ├── docs/
@@ -101,24 +106,21 @@ cd C:\Users\alexy\.openclaw\workspace\JuneKCTrading
 py src\ig_dow_candle_stream.py
 ```
 
+**Note (Tier 1 execution tracking):** After pulling the latest code, restart the runner once. From that moment onward, every signal will include an `execution` object in the JSONL (containing `deal_id`, `deal_reference`, `status`, `rr`, and `reason`). The plotter (`plot_kc.py`) reads this field directly for accurate color-coded markers.
+
 ### 5. Visualize logs
 
-After running the live KC runner, you can visualize the Keltner Channel + candlesticks. All logs now live under the experiment folder:
+After running the live KC runner, you can visualize the Keltner Channel + candlesticks.
 
 ```powershell
 cd C:\Users\alexy\.openclaw\workspace\JuneKCTrading
+py scripts/plot_kc.py                    # latest kc_*.jsonl, interactive HTML
+py scripts/plot_kc.py logs/kc_2026-W28.jsonl
+py scripts/plot_kc.py --export png       # also save static PNG
 
-# Recommended: plot the current week's experiment (auto-detects latest)
-py scripts/plot_kc.py
-
-# Or plot a specific week + export PNG
-py scripts/plot_kc.py logs/experiments/a17c7521/kc_2026-W29.jsonl --export png
-
-# Filter to US trading session only (09:30–16:00 ET)
-py scripts/plot_kc.py logs/experiments/a17c7521/kc_2026-W29.jsonl --date 2026-07-13
-
-# Full calendar day (00:00–23:59 ET)
-py scripts/plot_kc.py logs/experiments/a17c7521/kc_2026-W29.jsonl --date 2026-07-13 --full-day
+# Filter to a specific US trading day (ET timezone)
+py scripts/plot_kc.py --date 2026-07-08                    # US trading session only (09:30–16:00 ET)
+py scripts/plot_kc.py --date 2026-07-08 --full-day         # Full US Eastern calendar day (00:00–23:59 ET)
 ```
 
 The `--date` filter uses **US Eastern Time (ET)**:
