@@ -21,9 +21,13 @@ This module does NOT place orders. It only identifies signals.
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Literal
+from collections import deque
+import logging
 import uuid
 
 from config import CONFIG
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -51,14 +55,45 @@ class SignalDetector:
     on each completed bar.
     """
 
-    def __init__(self):
+    def __init__(self, cooldown_bars: int = 2):
         self._prev_upper: Optional[float] = None
         self._prev_lower: Optional[float] = None
+        self.cooldown_bars = cooldown_bars
+        self._last_signal_bar: Optional[datetime] = None
+        self._last_signal_dir: Optional[str] = None
+        # Slope regime filter state (active only when CONFIG.slope_k > 0).
+        # Holds the last k+1 KC mids (incl. current bar) for slope_norm.
+        self._mids: Optional[deque] = (
+            deque(maxlen=CONFIG.slope_k + 1) if CONFIG.slope_k > 0 else None
+        )
 
     def reset(self):
         """Clear previous KC state (useful when restarting mid-session)."""
         self._prev_upper = None
         self._prev_lower = None
+        self._last_signal_bar = None
+        self._last_signal_dir = None
+        if self._mids is not None:
+            self._mids.clear()
+
+    def _slope_regime(self, kc_values) -> tuple:
+        """
+        Return (regime, slope_norm) using shadow/backtest semantics:
+          slope_norm = (mid[i] - mid[i-k]) / (k * atr[i])
+          > +T -> 'up' | < -T -> 'down' | else 'range'
+        regime is 'range' until k+1 mids are available.
+        """
+        mid = kc_values.mid
+        atr = kc_values.atr
+        if len(self._mids) < CONFIG.slope_k + 1:
+            return "range", None
+        mid_k = self._mids[0]
+        slope_norm = (mid - mid_k) / (CONFIG.slope_k * atr) if atr > 0 else 0.0
+        if slope_norm > CONFIG.slope_T:
+            return "up", slope_norm
+        if slope_norm < -CONFIG.slope_T:
+            return "down", slope_norm
+        return "range", slope_norm
 
     def check(self, bar, kc_values) -> Optional[Signal]:
         """
@@ -79,6 +114,10 @@ class SignalDetector:
         current_upper = kc_values.upper
         current_lower = kc_values.lower
 
+        # Track mids for the slope filter (every completed bar, incl. first)
+        if self._mids is not None:
+            self._mids.append(kc_values.mid)
+
         if self._prev_upper is None or self._prev_lower is None:
             # First bar ever seen — cannot evaluate signals yet
             self._prev_upper = current_upper
@@ -89,6 +128,22 @@ class SignalDetector:
         # Previous bar closed above upper KC (we use prev_upper for the rule)
         # Current bar opens above prev_upper AND closes below prev_upper
         if (bar.open > self._prev_upper) and (bar.close < self._prev_upper):
+            if self._is_in_cooldown(bar.timestamp, "SHORT"):
+                self._prev_upper = current_upper
+                self._prev_lower = current_lower
+                return None
+            self._last_signal_bar = bar.timestamp
+            self._last_signal_dir = "SHORT"
+            if self._mids is not None:
+                regime, slope_norm = self._slope_regime(kc_values)
+                if regime == "up":
+                    logger.info(
+                        f"[SIGNAL] SHORT sig_{bar.timestamp.strftime('%Y%m%d_%H%M')}_short "
+                        f"BLOCKED by slope filter (regime=up, slope_norm={slope_norm:+.3f})"
+                    )
+                    self._prev_upper = current_upper
+                    self._prev_lower = current_lower
+                    return None
             signal = self._build_signal(
                 bar=bar,
                 kc_values=kc_values,
@@ -105,6 +160,22 @@ class SignalDetector:
         # Previous bar closed below lower KC
         # Current bar opens below prev_lower AND closes above prev_lower
         if (bar.open < self._prev_lower) and (bar.close > self._prev_lower):
+            if self._is_in_cooldown(bar.timestamp, "LONG"):
+                self._prev_upper = current_upper
+                self._prev_lower = current_lower
+                return None
+            self._last_signal_bar = bar.timestamp
+            self._last_signal_dir = "LONG"
+            if self._mids is not None:
+                regime, slope_norm = self._slope_regime(kc_values)
+                if regime == "down":
+                    logger.info(
+                        f"[SIGNAL] LONG sig_{bar.timestamp.strftime('%Y%m%d_%H%M')}_long "
+                        f"BLOCKED by slope filter (regime=down, slope_norm={slope_norm:+.3f})"
+                    )
+                    self._prev_upper = current_upper
+                    self._prev_lower = current_lower
+                    return None
             signal = self._build_signal(
                 bar=bar,
                 kc_values=kc_values,
@@ -120,6 +191,16 @@ class SignalDetector:
         self._prev_upper = current_upper
         self._prev_lower = current_lower
         return None
+
+    def _is_in_cooldown(self, bar_ts: datetime, direction: str) -> bool:
+        if self._last_signal_bar is None:
+            return False
+        # Same direction within cooldown window
+        if direction == self._last_signal_dir:
+            delta = (bar_ts - self._last_signal_bar).total_seconds() / 60
+            if delta < (self.cooldown_bars * CONFIG.bar_minutes):
+                return True
+        return False
 
     def _build_signal(self, bar, kc_values, direction, entry_price, stop_loss) -> Signal:
         """Construct a Signal dataclass instance with full traceability."""

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 import hashlib
 import json
+import os
 from pathlib import Path
 
 
@@ -33,12 +34,18 @@ class ExperimentConfig:
     account_name: str = "account1"          # Which account credential set to use
     paper_trading: bool = True              # True -> use .demo credentials, False -> .live
     size: float = 1.0                       # Position size in £ per point
-    min_risk_reward: float = 1.5            # Minimum acceptable RR ratio at signal time
+    min_risk_reward: float = 1.75           # Minimum acceptable RR ratio at signal time (v2: was 1.5; sweep on W31-W32 signals showed 1.75 peak: +£705 sim vs +£183)
     pending_bar_timeout: int = 3            # Cancel working order after N bars
     filled_bar_timeout: int = 10            # Close filled position at market after N bars
 
+    # === Slope Regime Filter (optional; slope_k=0 disables) ===
+    # slope_norm = (mid[i] - mid[i-k]) / (k * atr[i])
+    #   > +T -> uptrend (LONG only) | < -T -> downtrend (SHORT only) | else both
+    slope_k: int = 0
+    slope_T: float = 0.10
+
     # === Experiment Identity (auto-generated) ===
-    version: int = 1
+    version: int = 2
     experiment_name: str = field(init=False, repr=False)
     config_id: str = field(init=False, repr=False)
 
@@ -51,11 +58,14 @@ class ExperimentConfig:
         Generate a human-readable experiment name that encodes the key parameters.
         Example: kc_p13_m1.6_e3.0_s3.0_b3_v1
         """
-        return (
+        name = (
             f"kc_p{self.kc_period}_m{self.kc_multiplier}"
             f"_e{self.entry_offset}_s{self.stop_offset}"
-            f"_b{self.bar_minutes}_v{self.version}"
+            f"_b{self.bar_minutes}"
         )
+        if self.slope_k > 0:
+            name += f"_slope_k{self.slope_k}_T{self.slope_T}"
+        return name + f"_v{self.version}"
 
     def _generate_config_id(self) -> str:
         """
@@ -75,6 +85,11 @@ class ExperimentConfig:
             "min_risk_reward": self.min_risk_reward,
             "version": self.version,
         }
+        # Only mix slope params into the hash when the filter is active, so the
+        # default (filter-off) config keeps its historical config_id.
+        if self.slope_k > 0:
+            key["slope_k"] = self.slope_k
+            key["slope_T"] = self.slope_T
         raw = json.dumps(key, sort_keys=True).encode("utf-8")
         return hashlib.md5(raw).hexdigest()[:8]
 
@@ -93,6 +108,8 @@ class ExperimentConfig:
             "min_risk_reward": self.min_risk_reward,
             "pending_bar_timeout": self.pending_bar_timeout,
             "filled_bar_timeout": self.filled_bar_timeout,
+            "slope_k": self.slope_k,
+            "slope_T": self.slope_T,
             "version": self.version,
             "experiment_name": self.experiment_name,
             "config_id": self.config_id,
@@ -117,7 +134,13 @@ class ExperimentConfig:
 
 # === Global Instance ===
 # All other modules should import CONFIG from here.
-CONFIG = ExperimentConfig()
+# Env overrides let a second runner instance (e.g. the slope-filter shadow on
+# account2) reuse the same code without touching the primary's config.
+CONFIG = ExperimentConfig(
+    account_name=os.environ.get("KC_ACCOUNT_NAME", "account1"),
+    slope_k=int(os.environ.get("KC_SLOPE_K", "0")),
+    slope_T=float(os.environ.get("KC_SLOPE_T", "0.10")),
+)
 
 
 def get_config() -> ExperimentConfig:
