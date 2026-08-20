@@ -220,6 +220,46 @@ kc = KeltnerChannel(period=CONFIG.kc_period, multiplier=CONFIG.kc_multiplier)
 detector = SignalDetector()
 
 
+def _warmup_from_jsonl(max_bars: int = 400) -> None:
+    """Replay recent experiment JSONL bars through KC + detector on startup.
+
+    Without this, a restart resumes cold: the slope filter needs slope_k+1
+    completed bars (~33 min for k=10) before it engages, so signals in that
+    window trade UNFILTERED (2026-08-20). Warming from our own JSONL restores
+    KC state, prev-band levels, slope mids, and cooldown immediately.
+    """
+    try:
+        files = sorted(EXP_LOG_DIR.glob("kc_*.jsonl"), key=lambda p: p.name)
+        bars: List[Bar] = []
+        for f in files[-2:]:
+            for line in f.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    rec = json.loads(line)
+                    t = datetime.fromisoformat(str(rec["timestamp_utc"]))
+                    if t.tzinfo is None:
+                        t = t.replace(tzinfo=timezone.utc)
+                    bars.append(Bar(
+                        timestamp=t,
+                        open=float(rec["open"]),
+                        high=float(rec["high"]),
+                        low=float(rec["low"]),
+                        close=float(rec["close"]),
+                    ))
+                except (KeyError, TypeError, ValueError):
+                    continue
+        bars = bars[-max_bars:]
+        for bar in bars:
+            detector.check(bar, kc.update(bar))  # signals discarded on purpose
+        logger.info(f"[WARMUP] Replayed {len(bars)} JSONL bars into KC+detector")
+    except Exception as e:
+        logger.error(f"[WARMUP] Failed (continuing cold): {e}")
+
+
+_warmup_from_jsonl()
+
+
 def get_3min_bucket(dt: datetime) -> datetime:
     minute = (dt.minute // CONFIG.bar_minutes) * CONFIG.bar_minutes
     return dt.replace(minute=minute, second=0, microsecond=0, tzinfo=timezone.utc)
@@ -266,21 +306,40 @@ def process_1min_candle(values: dict):
                     "experiment_name": signal_obj.experiment_name,
                     "config_id": signal_obj.config_id,
                 }
-                logger.info(
-                    f"[SIGNAL] {signal_obj.direction} | entry={signal_obj.entry_price:.2f} "
-                    f"stop={signal_obj.stop_loss:.2f} | {signal_obj.experiment_name}"
-                )
+                if getattr(signal_obj, "slope_blocked", False):
+                    # Slope-blocked: log to JSONL for funnel parity with the sim
+                    # shadow (execution.status=BLOCKED_SLOPE), no order placement.
+                    signal_payload["slope_blocked"] = True
+                    execution = {
+                        "status": "BLOCKED_SLOPE",
+                        "regime": signal_obj.regime,
+                        "slope_norm": round(signal_obj.slope_norm, 4)
+                        if signal_obj.slope_norm is not None
+                        else None,
+                    }
+                else:
+                    logger.info(
+                        f"[SIGNAL] {signal_obj.direction} | entry={signal_obj.entry_price:.2f} "
+                        f"stop={signal_obj.stop_loss:.2f} | {signal_obj.experiment_name}"
+                    )
 
-                # === Phase 1: Order Placement + Tier 1 execution enrichment ===
-                if ORDER_MANAGER_AVAILABLE:
-                    try:
-                        # Lazy-init OrderManager on first signal
-                        if "order_manager" not in globals():
-                            global order_manager
-                            order_manager = OrderManager(experiment_dir=CONFIG.experiment_dir)
-                        execution = order_manager.place(signal_obj, kc_values)
-                    except Exception as e:
-                        logger.error(f"[ORDER] Failed to process signal: {e}")
+                    # === Phase 1: Order Placement + Tier 1 execution enrichment ===
+                    if ORDER_MANAGER_AVAILABLE:
+                        try:
+                            # Lazy-init OrderManager on first signal
+                            if "order_manager" not in globals():
+                                global order_manager
+                                order_manager = OrderManager(experiment_dir=CONFIG.experiment_dir)
+                            execution = order_manager.place(signal_obj, kc_values)
+                        except Exception as e:
+                            logger.error(f"[ORDER] Failed to process signal: {e}")
+
+            # === v2: cancel working orders unfilled for >= pending_bar_timeout bars ===
+            if ORDER_MANAGER_AVAILABLE and "order_manager" in globals():
+                try:
+                    order_manager.cancel_stale_pending(last_bucket)
+                except Exception as e:
+                    logger.error(f"[ORDER] cancel_stale_pending failed: {e}")
 
             record = {
                 "timestamp_utc": last_bucket.isoformat(),

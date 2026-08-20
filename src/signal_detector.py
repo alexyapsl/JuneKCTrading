@@ -47,6 +47,11 @@ class Signal:
     stop_loss: float
     experiment_name: str
     config_id: str
+    # Slope filter bookkeeping (2026-08-20): blocked signals are still emitted
+    # (flagged) so the JSONL funnel matches the sim shadow's accounting.
+    slope_blocked: bool = False
+    regime: Optional[str] = None
+    slope_norm: Optional[float] = None
 
 
 class SignalDetector:
@@ -141,9 +146,19 @@ class SignalDetector:
                         f"[SIGNAL] SHORT sig_{bar.timestamp.strftime('%Y%m%d_%H%M')}_short "
                         f"BLOCKED by slope filter (regime=up, slope_norm={slope_norm:+.3f})"
                     )
+                    signal = self._build_signal(
+                        bar=bar,
+                        kc_values=kc_values,
+                        direction="SHORT",
+                        entry_price=round(bar.low - CONFIG.entry_offset, 4),
+                        stop_loss=round(bar.high + CONFIG.stop_offset, 4),
+                    )
+                    signal.slope_blocked = True
+                    signal.regime = regime
+                    signal.slope_norm = slope_norm
                     self._prev_upper = current_upper
                     self._prev_lower = current_lower
-                    return None
+                    return signal
             signal = self._build_signal(
                 bar=bar,
                 kc_values=kc_values,
@@ -173,9 +188,19 @@ class SignalDetector:
                         f"[SIGNAL] LONG sig_{bar.timestamp.strftime('%Y%m%d_%H%M')}_long "
                         f"BLOCKED by slope filter (regime=down, slope_norm={slope_norm:+.3f})"
                     )
+                    signal = self._build_signal(
+                        bar=bar,
+                        kc_values=kc_values,
+                        direction="LONG",
+                        entry_price=round(bar.high + CONFIG.entry_offset, 4),
+                        stop_loss=round(bar.low - CONFIG.stop_offset, 4),
+                    )
+                    signal.slope_blocked = True
+                    signal.regime = regime
+                    signal.slope_norm = slope_norm
                     self._prev_upper = current_upper
                     self._prev_lower = current_lower
-                    return None
+                    return signal
             signal = self._build_signal(
                 bar=bar,
                 kc_values=kc_values,
