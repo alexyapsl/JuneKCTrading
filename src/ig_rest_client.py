@@ -101,6 +101,42 @@ class IGRestClient:
         if not self._is_logged_in or self.ig_service is None:
             self.login()
 
+    @staticmethod
+    def _is_auth_error(exc: Exception) -> bool:
+        """Detect IG session/token failures that are safe to fix via fresh login."""
+        msg = str(exc).lower()
+        return (
+            "error.security.client-token-invalid" in msg
+            or "client-token-invalid" in msg
+            or "invalid session token" in msg
+            or ("401" in msg and "token" in msg)
+        )
+
+    def _force_relogin(self) -> None:
+        """Discard the stale REST session and create a fresh one."""
+        logger.warning("[IG] Forcing fresh login after stale/invalid session token")
+        self._is_logged_in = False
+        self.ig_service = None
+        self.login()
+
+    def _call_with_reauth(self, operation_name: str, operation):
+        """
+        Run an authenticated IG call; on a stale-token 401, force a fresh login
+        and retry the same operation exactly once.
+        """
+        self.ensure_session()
+        try:
+            return operation()
+        except Exception as e:
+            if not self._is_auth_error(e):
+                raise
+            logger.warning(
+                f"[IG] {operation_name} failed with stale/invalid session token: {e}. "
+                "Retrying once with a fresh login."
+            )
+            self._force_relogin()
+            return operation()
+
     # ------------------------------------------------------------------ #
     #                           PHASE 1 METHODS                          #
     # ------------------------------------------------------------------ #
@@ -116,6 +152,7 @@ class IGRestClient:
         expiry: str = "-",
         currency_code: str = "GBP",
         force_open: bool = True,
+        order_type: str = "STOP",
         guaranteed_stop: bool = False,
         time_in_force: str = "GOOD_TILL_CANCELLED",
         good_till_date: Optional[str] = None,
@@ -191,22 +228,25 @@ class IGRestClient:
                 f"[IG] Creating working order: {direction} {size} {epic} "
                 f"@ {level} | SL={stop_level} | TP={limit_level}"
             )
-            response = self.ig_service.create_working_order(
-                currency_code=currency_code,
-                direction=direction,
-                epic=epic,
-                time_in_force=time_in_force,
-                good_till_date=good_till_date,
-                expiry=expiry,
-                force_open=force_open,
-                order_type="LIMIT",
-                guaranteed_stop=guaranteed_stop,
-                size=str(size),  # library often expects string
-                stop_distance=stop_distance,
-                stop_level=stop_level,
-                level=level,
-                limit_distance=limit_distance,
-                limit_level=limit_level,
+            response = self._call_with_reauth(
+                "create_working_order",
+                lambda: self.ig_service.create_working_order(
+                    currency_code=currency_code,
+                    direction=direction,
+                    epic=epic,
+                    time_in_force=time_in_force,
+                    good_till_date=good_till_date,
+                    expiry=expiry,
+                    force_open=force_open,
+                    order_type=order_type,
+                    guaranteed_stop=guaranteed_stop,
+                    size=str(size),  # library often expects string
+                    stop_distance=stop_distance,
+                    stop_level=stop_level,
+                    level=level,
+                    limit_distance=limit_distance,
+                    limit_level=limit_level,
+                ),
             )
             logger.info(f"[IG] Working order accepted: {response}")
             return response
@@ -222,17 +262,53 @@ class IGRestClient:
         """Placeholder for Phase 2."""
         raise NotImplementedError("amend_working_order will be implemented in Phase 2")
 
-    def cancel_working_order(self, deal_reference: str) -> Dict[str, Any]:
-        """Placeholder for Phase 2."""
-        raise NotImplementedError("cancel_working_order will be implemented in Phase 2")
+    def cancel_working_order(self, deal_id: str) -> Dict[str, Any]:
+        """
+        Cancel a working (untriggered) order by its dealId.
+
+        NOTE: IG working-order endpoints key off dealId (not dealReference).
+        Use get_working_orders() to resolve a level/direction match to a dealId.
+        """
+        self.ensure_session()
+        try:
+            logger.info(f"[IG] Cancelling working order dealId={deal_id}")
+            response = self._call_with_reauth(
+                "cancel_working_order",
+                lambda: self.ig_service.delete_working_order(deal_id),
+            )
+            if hasattr(response, "to_dict"):
+                response = response.to_dict()
+            return response if isinstance(response, dict) else {"raw": str(response)}
+        except Exception as e:
+            logger.error(f"[IG] cancel_working_order failed for {deal_id}: {e}")
+            raise
 
     def close_position(self, deal_id: str, direction: str, size: float, **kwargs) -> Dict[str, Any]:
         """Placeholder for Phase 2."""
         raise NotImplementedError("close_position will be implemented in Phase 2")
 
     def get_working_orders(self) -> Dict[str, Any]:
-        """Placeholder for Phase 2."""
-        raise NotImplementedError("get_working_orders will be implemented in Phase 2")
+        """
+        Fetch all currently working (untriggered) orders.
+
+        Returns dict with key 'workingOrders' (list). Each item typically has
+        'workingOrderData' (dealId, direction, orderLevel, orderSize, ...)
+        and 'marketData' (epic, bid, offer, ...).
+        """
+        self.ensure_session()
+        try:
+            response = self._call_with_reauth(
+                "get_working_orders",
+                lambda: self.ig_service.fetch_working_orders(),
+            )
+            if hasattr(response, "to_dict"):
+                response = response.to_dict()
+            if isinstance(response, list):
+                response = {"workingOrders": response}
+            return response if isinstance(response, dict) else {"workingOrders": [], "raw": str(response)}
+        except Exception as e:
+            logger.error(f"[IG] get_working_orders failed: {e}")
+            raise
 
     def get_open_positions(self) -> Dict[str, Any]:
         """Placeholder for Phase 2."""
@@ -254,17 +330,34 @@ class IGRestClient:
         self.ensure_session()
         try:
             logger.info(f"[IG] Fetching current price snapshot for {epic}")
-            response = self.ig_service.fetch_current_prices([epic])
-            logger.debug(f"[IG] fetch_current_prices raw response: {response}")
-            # Typical trading-ig response shape: {'prices': {...}, 'snapshot': {...}}
+            response = None
+            # trading_ig.IGService uses lazy __getattr__, so hasattr is unreliable.
+            # Try the preferred method first, then fall back safely.
+            try:
+                if hasattr(self.ig_service, "fetch_market_by_epic"):
+                    response = self.ig_service.fetch_market_by_epic(epic)
+            except Exception:
+                response = None
+
+            if response is None:
+                try:
+                    if hasattr(self.ig_service, "fetch_current_prices"):
+                        response = self.ig_service.fetch_current_prices([epic])
+                except Exception:
+                    response = None
+
+            if response is None:
+                logger.warning("[IG] No working price-fetch method on IGService; skipping snapshot")
+                return None
+
+            logger.debug(f"[IG] price snapshot raw response: {response}")
             if isinstance(response, dict):
-                # Prefer 'snapshot' if the library provides a clean flattened view
                 snapshot = response.get("snapshot") or response.get("prices") or response
                 return snapshot if isinstance(snapshot, dict) else {"raw": snapshot}
             return {"raw": response}
         except Exception as e:
-            logger.error(f"[IG] fetch_current_price failed for {epic}: {e}")
-            raise
+            logger.warning(f"[IG] fetch_current_price failed for {epic}: {e} (snapshot skipped)")
+            return None  # non-fatal for Phase 1.5"
 
     # ------------------------------------------------------------------ #
     #                     CONFIRM / OUTCOME (Phase 1.5)                  #
@@ -293,12 +386,36 @@ class IGRestClient:
         self.ensure_session()
         try:
             logger.info(f"[IG] Confirming deal_reference={deal_reference}")
-            response = self.ig_service.fetch_deal_by_deal_reference(deal_reference)
+            response = self._call_with_reauth(
+                "confirm_order",
+                lambda: self.ig_service.fetch_deal_by_deal_reference(deal_reference),
+            )
             logger.info(f"[IG] Confirmation response: {response}")
             return response
         except Exception as e:
             logger.error(f"[IG] confirm_order failed for {deal_reference}: {e}")
             raise
+
+    def fetch_transaction_reference(self, deal_id: str) -> Optional[str]:
+        """
+        Derive the transaction/position reference from an IG dealId.
+
+        IG deal ids embed the reference directly: dealId = "DIAAAAY" + ref
+        (verified 2026-08-20 against activity + transaction history: close
+        dealId DIAAAAYBYYME3AD <-> txn reference BYYME3AD, same timestamp).
+
+        NB: GET /history/transactions?dealId=... does NOT work — the dealId
+        param is silently ignored and the endpoint returns the LATEST
+        transactions, which would attach the wrong reference. Do not use it.
+        """
+        if deal_id and deal_id.startswith("DIAAAAY") and len(deal_id) == 15:
+            ref = deal_id[7:]
+            logger.info(f"[IG] Derived transaction reference from dealId: {ref}")
+            return ref
+        logger.warning(
+            f"[IG] Unrecognized dealId format, cannot derive reference: {deal_id}"
+        )
+        return None
 
     # ------------------------------------------------------------------
     # Activity / History lookup (preferred for rejected working orders)
@@ -353,11 +470,14 @@ class IGRestClient:
 
             logger.info(f"[IG] Fetching account activity deal_id={deal_id} from={from_date} to={to_date}")
             # trading-ig exposes this as fetch_account_activity
-            response = self.ig_service.fetch_account_activity(
-                from_date=from_date,
-                to_date=to_date,
-                deal_id=deal_id,
-                epic=epic,
+            response = self._call_with_reauth(
+                "fetch_account_activity",
+                lambda: self.ig_service.fetch_account_activity(
+                    from_date=from_date,
+                    to_date=to_date,
+                    deal_id=deal_id,
+                    epic=epic,
+                ),
             )
             # Some versions return a DataFrame or a dict; normalise to dict
             if hasattr(response, "to_dict"):
@@ -386,10 +506,13 @@ class IGRestClient:
         self.ensure_session()
         try:
             logger.info(f"[IG] Fetching transactions from={from_date} to={to_date}")
-            response = self.ig_service.fetch_account_transactions(
-                from_date=from_date,
-                to_date=to_date,
-                type=type,
+            response = self._call_with_reauth(
+                "fetch_account_transactions",
+                lambda: self.ig_service.fetch_account_transactions(
+                    from_date=from_date,
+                    to_date=to_date,
+                    type=type,
+                ),
             )
             if hasattr(response, "to_dict"):
                 response = response.to_dict()
