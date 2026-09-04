@@ -262,6 +262,42 @@ class IGRestClient:
         """Placeholder for Phase 2."""
         raise NotImplementedError("amend_working_order will be implemented in Phase 2")
 
+    def update_open_position(
+        self,
+        deal_id: str,
+        limit_level: Optional[float] = None,
+        stop_level: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Amend an OPEN position's stop/limit (PUT /positions/otc/{dealId}).
+
+        Used by the per-bar dynamic management (2026-08-25): target follows the
+        current KC band; stop ratchets to break-even then to the KC mid.
+        Pass the current value for any leg you are NOT changing — IG requires
+        both fields to be consistent with each other on every amend.
+        """
+        self.ensure_session()
+        try:
+            logger.info(
+                f"[IG] Amending open position dealId={deal_id}: "
+                f"limit={limit_level} stop={stop_level}"
+            )
+            response = self._call_with_reauth(
+                "update_open_position",
+                lambda: self.ig_service.update_open_position(
+                    deal_id=deal_id,
+                    limit_level=limit_level,
+                    stop_level=stop_level,
+                ),
+            )
+            if hasattr(response, "to_dict"):
+                response = response.to_dict()
+            logger.info(f"[IG] Amend response: {response}")
+            return response if isinstance(response, dict) else {"raw": str(response)}
+        except Exception as e:
+            logger.error(f"[IG] update_open_position failed for {deal_id}: {e}")
+            raise
+
     def cancel_working_order(self, deal_id: str) -> Dict[str, Any]:
         """
         Cancel a working (untriggered) order by its dealId.
@@ -283,9 +319,147 @@ class IGRestClient:
             logger.error(f"[IG] cancel_working_order failed for {deal_id}: {e}")
             raise
 
-    def close_position(self, deal_id: str, direction: str, size: float, **kwargs) -> Dict[str, Any]:
-        """Placeholder for Phase 2."""
-        raise NotImplementedError("close_position will be implemented in Phase 2")
+    def close_position(
+        self,
+        deal_id: str,
+        direction: str,
+        size: float,
+        epic: Optional[str] = None,
+        expiry: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Close an open position at market (OTC delete).
+
+        IMPORTANT (bug fix 2026-09-04): IG's DELETE /positions/otc treats
+        `dealId` as mutually exclusive with `epic`/`expiry`, and its validator
+        counts the KEYS as supplied even when the values are JSON null.
+        trading_ig.close_open_position always includes epic/expiry/level/quoteId
+        in the body, so routing through it returns 400
+        `validation.mutual-exclusive-value.request` on every market close
+        (first seen 2026-08-29 on the control runner's stuck long; nulling the
+        values on 2026-09-03 did NOT help). We therefore bypass trading_ig and
+        POST a minimal body with ONLY dealId/direction/size/orderType.
+
+        Parameters
+        ----------
+        deal_id : str
+            The position's dealId (e.g. "DIAAAAYB636BYBE") — NOT the working-order
+            dealId. Fetch open positions and match on the order's level/direction.
+        direction : str
+            "BUY" or "SELL" — the direction of the OPEN position (the close
+            request inverts it internally; we pass the open direction and swap).
+        size : float
+            Position size (must match the open size for a full close).
+        epic : str, optional
+            Ignored — kept for backwards compatibility. IG rejects close
+            requests that combine dealId with epic/expiry (even as nulls).
+        expiry : str, optional
+            Ignored — see `epic`.
+
+        Returns
+        -------
+        dict
+            IG confirmation dict (dealStatus, dealId, level, ...).
+        """
+        self.ensure_session()
+        open_dir = direction.upper()
+        if open_dir not in ("BUY", "SELL"):
+            raise ValueError("direction must be 'BUY' or 'SELL'")
+        close_dir = "SELL" if open_dir == "BUY" else "BUY"
+        try:
+            logger.info(
+                f"[IG] Closing position deal_id={deal_id} ({open_dir} {size}) at market"
+            )
+            response = self._call_with_reauth(
+                "close_position",
+                lambda: self._close_position_minimal(deal_id, close_dir, size),
+            )
+            if hasattr(response, "to_dict"):
+                response = response.to_dict()
+            logger.info(f"[IG] Close response: {response}")
+            return response if isinstance(response, dict) else {"raw": str(response)}
+        except Exception as e:
+            logger.error(f"[IG] close_position failed for {deal_id}: {e}")
+            raise
+
+    def _close_position_minimal(
+        self, deal_id: str, close_dir: str, size: float
+    ) -> Dict[str, Any]:
+        """
+        Close via POST /positions/otc (_method=DELETE) with a minimal body.
+
+        Only the four required keys are sent — dealId, direction, size,
+        orderType — because IG's mutual-exclusion validator rejects the request
+        if epic/expiry/level/quoteId keys are present AT ALL, even as null.
+        trading_ig's close_open_position always includes them, so we call the
+        CRUD layer directly. Raises on non-200 (same contract as trading_ig).
+        """
+        import json
+
+        params = {
+            "dealId": deal_id,
+            "direction": close_dir,
+            "size": str(size),
+            "orderType": "MARKET",
+        }
+        response = self.ig_service._req(
+            "delete", "/positions/otc", params, None, "1"
+        )
+        if response.status_code != 200:
+            raise Exception(response.text)
+        deal_reference = json.loads(response.text).get("dealReference")
+        if not deal_reference:
+            return {"raw": response.text}
+        return self.ig_service.fetch_deal_by_deal_reference(deal_reference)
+
+    def get_open_positions(self) -> Dict[str, Any]:
+        """
+        Fetch all currently open positions.
+
+        Returns dict with key 'positions' (list). Each item typically has
+        'position' (dealId, direction, size, level, ...) and 'market' (epic, ...).
+        """
+        self.ensure_session()
+        try:
+            response = self._call_with_reauth(
+                "get_open_positions",
+                lambda: self.ig_service.fetch_open_positions(),
+            )
+            if hasattr(response, "to_dict"):
+                records = response.to_dict("records")
+                return {"positions": records}
+            if isinstance(response, list):
+                return {"positions": response}
+            return response if isinstance(response, dict) else {"positions": [], "raw": str(response)}
+        except Exception as e:
+            logger.error(f"[IG] get_open_positions failed: {e}")
+            raise
+
+    # Flat DataFrame record keys -> nested raw-API shape, so consumers can rely
+    # on workingOrderData / marketData regardless of trading-ig version.
+    _WO_DATA_KEYS = (
+        "dealId", "direction", "epic", "orderSize", "orderLevel", "timeInForce",
+        "goodTillDate", "goodTillDateISO", "createdDate", "createdDateUTC",
+        "guaranteedStop", "orderType", "stopDistance", "limitDistance",
+        "currencyCode", "dma", "limitedRiskPremium",
+    )
+    _WO_MARKET_KEYS = (
+        "instrumentName", "exchangeId", "expiry", "marketStatus", "epic",
+        "instrumentType", "lotSize", "high", "low", "percentageChange",
+        "netChange", "bid", "offer", "updateTime", "updateTimeUTC",
+        "delayTime", "streamingPricesAvailable", "scalingFactor",
+    )
+
+    @classmethod
+    def _normalize_working_order(cls, rec: Dict[str, Any]) -> Dict[str, Any]:
+        """Accept a flat DataFrame record or a nested raw-API item; return nested."""
+        if isinstance(rec, dict) and "workingOrderData" in rec:
+            return rec
+        if not isinstance(rec, dict):
+            return {"workingOrderData": {}, "marketData": {}}
+        wod = {k: rec.get(k) for k in cls._WO_DATA_KEYS if k in rec}
+        md = {k: rec.get(k) for k in cls._WO_MARKET_KEYS if k in rec}
+        return {"workingOrderData": wod, "marketData": md}
 
     def get_working_orders(self) -> Dict[str, Any]:
         """
@@ -302,17 +476,25 @@ class IGRestClient:
                 lambda: self.ig_service.fetch_working_orders(),
             )
             if hasattr(response, "to_dict"):
-                response = response.to_dict()
+                # trading-ig returns a DataFrame; records orientation preserves rows.
+                # Plain to_dict() gives a column-oriented dict, which silently
+                # drops every order downstream (bug found 2026-08-24).
+                records = response.to_dict("records")
+                return {"workingOrders": [self._normalize_working_order(r) for r in records]}
             if isinstance(response, list):
-                response = {"workingOrders": response}
+                return {"workingOrders": [self._normalize_working_order(r) for r in response]}
+            if isinstance(response, dict) and "workingOrders" in response:
+                return {
+                    **response,
+                    "workingOrders": [
+                        self._normalize_working_order(r)
+                        for r in (response.get("workingOrders") or [])
+                    ],
+                }
             return response if isinstance(response, dict) else {"workingOrders": [], "raw": str(response)}
         except Exception as e:
             logger.error(f"[IG] get_working_orders failed: {e}")
             raise
-
-    def get_open_positions(self) -> Dict[str, Any]:
-        """Placeholder for Phase 2."""
-        raise NotImplementedError("get_open_positions will be implemented in Phase 2")
 
     def fetch_current_price(self, epic: str) -> Dict[str, Any]:
         """
