@@ -38,20 +38,45 @@ class ExperimentConfig:
     pending_bar_timeout: int = 3            # Cancel working order after N bars
     filled_bar_timeout: int = 10            # Close filled position at market after N bars
 
+    # === Weekend Safety ===
+    # Flatten shortly before IG's Friday 22:00 Europe/London close so no
+    # working orders or open positions are carried over the weekend.
+    weekend_flatten_enabled: bool = True
+    weekend_flatten_local_time: str = "21:50"
+    weekend_flatten_timezone: str = "Europe/London"
+
     # === Slope Regime Filter (optional; slope_k=0 disables) ===
     # slope_norm = (mid[i] - mid[i-k]) / (k * atr[i])
     #   > +T -> uptrend (LONG only) | < -T -> downtrend (SHORT only) | else both
     slope_k: int = 0
     slope_T: float = 0.10
 
-    # === Experiment Identity (auto-generated) ===
-    version: int = 2
-    experiment_name: str = field(init=False, repr=False)
-    config_id: str = field(init=False, repr=False)
+    # === Dynamic Exit Management (2026-08-26 experiment) ===
+    # True  (treatment, primary): on each completed bar, target follows the
+    #   current band; stop ratchets to entry once the bar range clears entry,
+    #   then to KC mid once the bar range clears the mid.
+    # False (control, account2 shadow): original static TP/SL from signal time.
+    dynamic_mgmt: bool = True
+
+    # === Entry Filters (2026-10-25 experiment) ===
+    # direction_filter: "" = both directions; "LONG" or "SHORT" = that side only.
+    # atr_min: 0 = disabled; otherwise only take signals with KC ATR >= atr_min.
+    # Blocked signals are still emitted (flagged) so the JSONL funnel keeps full
+    # accounting of what the filter rejected.
+    direction_filter: str = ""
+    atr_min: float = 0.0
 
     def __post_init__(self):
+        self.direction_filter = (self.direction_filter or "").strip().upper()
+        if self.direction_filter not in ("", "LONG", "SHORT"):
+            raise ValueError(f"invalid direction_filter: {self.direction_filter!r}")
         self.experiment_name = self._generate_experiment_name()
         self.config_id = self._generate_config_id()
+
+    # === Experiment Identity (auto-generated) ===
+    version: int = 5   # v5: 2026-09-02 - account1 creds restored to original account (annionannuk, Z5Q5F7) after replacement account died; fresh P&L tracking
+    experiment_name: str = field(init=False, repr=False)
+    config_id: str = field(init=False, repr=False)
 
     def _generate_experiment_name(self) -> str:
         """
@@ -65,6 +90,12 @@ class ExperimentConfig:
         )
         if self.slope_k > 0:
             name += f"_slope_k{self.slope_k}_T{self.slope_T}"
+        if self.dynamic_mgmt:
+            name += "_dyn"
+        if self.direction_filter:
+            name += f"_{self.direction_filter.lower()}only"
+        if self.atr_min > 0:
+            name += f"_atrmin{self.atr_min:g}"
         return name + f"_v{self.version}"
 
     def _generate_config_id(self) -> str:
@@ -83,6 +114,7 @@ class ExperimentConfig:
             "paper_trading": self.paper_trading,
             "size": self.size,
             "min_risk_reward": self.min_risk_reward,
+            "dynamic_mgmt": self.dynamic_mgmt,
             "version": self.version,
         }
         # Only mix slope params into the hash when the filter is active, so the
@@ -90,6 +122,12 @@ class ExperimentConfig:
         if self.slope_k > 0:
             key["slope_k"] = self.slope_k
             key["slope_T"] = self.slope_T
+        # Only mix entry-filter params into the hash when active, so the
+        # default (filter-off) config keeps its historical config_id.
+        if self.direction_filter:
+            key["direction_filter"] = self.direction_filter
+        if self.atr_min > 0:
+            key["atr_min"] = self.atr_min
         raw = json.dumps(key, sort_keys=True).encode("utf-8")
         return hashlib.md5(raw).hexdigest()[:8]
 
@@ -108,8 +146,14 @@ class ExperimentConfig:
             "min_risk_reward": self.min_risk_reward,
             "pending_bar_timeout": self.pending_bar_timeout,
             "filled_bar_timeout": self.filled_bar_timeout,
+            "weekend_flatten_enabled": self.weekend_flatten_enabled,
+            "weekend_flatten_local_time": self.weekend_flatten_local_time,
+            "weekend_flatten_timezone": self.weekend_flatten_timezone,
             "slope_k": self.slope_k,
             "slope_T": self.slope_T,
+            "dynamic_mgmt": self.dynamic_mgmt,
+            "direction_filter": self.direction_filter,
+            "atr_min": self.atr_min,
             "version": self.version,
             "experiment_name": self.experiment_name,
             "config_id": self.config_id,
@@ -140,6 +184,12 @@ CONFIG = ExperimentConfig(
     account_name=os.environ.get("KC_ACCOUNT_NAME", "account1"),
     slope_k=int(os.environ.get("KC_SLOPE_K", "0")),
     slope_T=float(os.environ.get("KC_SLOPE_T", "0.10")),
+    weekend_flatten_enabled=os.environ.get("KC_WEEKEND_FLATTEN_ENABLED", "1").lower() not in {"0", "false", "no"},
+    weekend_flatten_local_time=os.environ.get("KC_WEEKEND_FLATTEN_TIME", "21:50"),
+    weekend_flatten_timezone=os.environ.get("KC_WEEKEND_FLATTEN_TZ", "Europe/London"),
+    dynamic_mgmt=os.environ.get("KC_DYNAMIC_MGMT", "1").lower() not in {"0", "false", "no"},
+    direction_filter=os.environ.get("KC_DIRECTION_FILTER", ""),
+    atr_min=float(os.environ.get("KC_ATR_MIN", "0")),
 )
 
 

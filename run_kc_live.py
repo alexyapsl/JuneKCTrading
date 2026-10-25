@@ -27,6 +27,11 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, List, TYPE_CHECKING
 
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover - Windows/Python builds without tzdata
+    ZoneInfo = None
+
 if TYPE_CHECKING:
     from src.signal_detector import Signal
 
@@ -259,14 +264,78 @@ def _warmup_from_jsonl(max_bars: int = 400) -> None:
 
 _warmup_from_jsonl()
 
+# Eager OrderManager init (2026-08-25): positions must be adopted + dynamically
+# managed from startup, not only after the first signal. Previously the
+# OrderManager was lazy-initialised on the first signal, which left already-open
+# positions unmanaged (no target updates / break-even) until a signal fired.
+order_manager = None
+if ORDER_MANAGER_AVAILABLE:
+    try:
+        order_manager = OrderManager(experiment_dir=CONFIG.experiment_dir)
+    except Exception as e:
+        logger.error(f"[ORDER] Startup OrderManager init failed (will lazy-init on first signal): {e}")
+        order_manager = None
+
 
 def get_3min_bucket(dt: datetime) -> datetime:
     minute = (dt.minute // CONFIG.bar_minutes) * CONFIG.bar_minutes
     return dt.replace(minute=minute, second=0, microsecond=0, tzinfo=timezone.utc)
 
 
+# ====================== WEEKEND FLATTEN GUARD ======================
+_WEEKEND_FLATTENED_FOR: Optional[str] = None
+_WEEKEND_TZ = None
+if CONFIG.weekend_flatten_enabled:
+    try:
+        _WEEKEND_TZ = ZoneInfo(CONFIG.weekend_flatten_timezone) if ZoneInfo else None
+    except Exception as e:
+        logger.warning(
+            f"[WEEKEND] Could not load timezone {CONFIG.weekend_flatten_timezone}: {e}. "
+            "Falling back to a conservative UTC cutoff."
+        )
+
+
+def _weekend_local_ts(bar_ts: datetime) -> datetime:
+    """Return the bar timestamp in the configured market-close timezone."""
+    if _WEEKEND_TZ is not None:
+        return bar_ts.astimezone(_WEEKEND_TZ)
+    return bar_ts.astimezone(timezone.utc)
+
+
+def _weekend_cutoff_hhmm() -> tuple[int, int]:
+    try:
+        hh_text, mm_text = CONFIG.weekend_flatten_local_time.split(":", 1)
+        hh, mm = int(hh_text), int(mm_text)
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            raise ValueError
+        # Conservative fallback: without Europe/London DST data, 20:50 UTC is
+        # 21:50 BST in summer and safely before the 22:00 London close in winter.
+        if _WEEKEND_TZ is None and hh == 21:
+            hh = 20
+        return hh, mm
+    except Exception:
+        logger.warning(
+            f"[WEEKEND] Invalid weekend_flatten_local_time={CONFIG.weekend_flatten_local_time!r}; "
+            "using 21:50"
+        )
+        return (21, 50) if _WEEKEND_TZ is not None else (20, 50)
+
+
+def _is_weekend_flatten_due(bar_ts: datetime) -> bool:
+    """True on Friday from the configured local cutoff until the weekend close."""
+    if not CONFIG.weekend_flatten_enabled:
+        return False
+    local_ts = _weekend_local_ts(bar_ts)
+    hh, mm = _weekend_cutoff_hhmm()
+    return local_ts.weekday() == 4 and (local_ts.hour, local_ts.minute) >= (hh, mm)
+
+
+def _weekend_flatten_key(bar_ts: datetime) -> str:
+    return _weekend_local_ts(bar_ts).date().isoformat()
+
+
 def process_1min_candle(values: dict):
-    global last_bucket
+    global last_bucket, order_manager, _WEEKEND_FLATTENED_FOR
 
     now = datetime.now(timezone.utc)
     bucket = get_3min_bucket(now)
@@ -293,8 +362,23 @@ def process_1min_candle(values: dict):
 
             kc_values = kc.update(bar)
 
+            # === Weekend safety: flatten before Friday market close ===
+            weekend_flatten_due = _is_weekend_flatten_due(last_bucket)
+            if weekend_flatten_due and ORDER_MANAGER_AVAILABLE:
+                try:
+                    if order_manager is None:
+                        order_manager = OrderManager(experiment_dir=CONFIG.experiment_dir)
+                    flatten_key = _weekend_flatten_key(last_bucket)
+                    if _WEEKEND_FLATTENED_FOR != flatten_key:
+                        summary = order_manager.flatten_for_weekend(last_bucket)
+                        if summary.get("ok"):
+                            _WEEKEND_FLATTENED_FOR = flatten_key
+                except Exception as e:
+                    logger.error(f"[WEEKEND] Flatten failed: {e}")
+
             # === Signal Detection ===
-            signal_obj: Optional[Signal] = detector.check(bar, kc_values)
+            # Do not open fresh positions after the weekend flatten cutoff.
+            signal_obj: Optional[Signal] = None if weekend_flatten_due else detector.check(bar, kc_values)
             signal_payload = None
             execution = None   # Always defined (Tier 1)
             if signal_obj:
@@ -306,6 +390,8 @@ def process_1min_candle(values: dict):
                     "experiment_name": signal_obj.experiment_name,
                     "config_id": signal_obj.config_id,
                 }
+                dir_blocked = getattr(signal_obj, "direction_blocked", False)
+                atr_blocked = getattr(signal_obj, "atr_blocked", False)
                 if getattr(signal_obj, "slope_blocked", False):
                     # Slope-blocked: log to JSONL for funnel parity with the sim
                     # shadow (execution.status=BLOCKED_SLOPE), no order placement.
@@ -317,6 +403,17 @@ def process_1min_candle(values: dict):
                         if signal_obj.slope_norm is not None
                         else None,
                     }
+                elif dir_blocked or atr_blocked:
+                    # Entry-filter blocked (direction / ATR-min, 2026-10-25):
+                    # log to JSONL for funnel accounting, no order placement.
+                    if dir_blocked:
+                        signal_payload["direction_blocked"] = True
+                    if atr_blocked:
+                        signal_payload["atr_blocked"] = True
+                    execution = {
+                        "status": "BLOCKED_DIRECTION" if dir_blocked else "BLOCKED_ATR",
+                        "atr": round(signal_obj.kc_atr, 2),
+                    }
                 else:
                     logger.info(
                         f"[SIGNAL] {signal_obj.direction} | entry={signal_obj.entry_price:.2f} "
@@ -326,20 +423,37 @@ def process_1min_candle(values: dict):
                     # === Phase 1: Order Placement + Tier 1 execution enrichment ===
                     if ORDER_MANAGER_AVAILABLE:
                         try:
-                            # Lazy-init OrderManager on first signal
-                            if "order_manager" not in globals():
-                                global order_manager
+                            if order_manager is None:
                                 order_manager = OrderManager(experiment_dir=CONFIG.experiment_dir)
                             execution = order_manager.place(signal_obj, kc_values)
                         except Exception as e:
                             logger.error(f"[ORDER] Failed to process signal: {e}")
 
             # === v2: cancel working orders unfilled for >= pending_bar_timeout bars ===
-            if ORDER_MANAGER_AVAILABLE and "order_manager" in globals():
+            if ORDER_MANAGER_AVAILABLE and order_manager is not None:
                 try:
                     order_manager.cancel_stale_pending(last_bucket)
                 except Exception as e:
                     logger.error(f"[ORDER] cancel_stale_pending failed: {e}")
+
+                # === v2: register fills + close positions at filled_bar_timeout ===
+                try:
+                    order_manager._refresh_filled_positions(last_bucket)
+                except Exception as e:
+                    logger.error(f"[ORDER] _refresh_filled_positions failed: {e}")
+                try:
+                    order_manager.close_timed_out_positions(last_bucket)
+                except Exception as e:
+                    logger.error(f"[ORDER] close_timed_out_positions failed: {e}")
+
+                # === v3: dynamic position management (target follows band, BE + mid stop ratchet) ===
+                # Gated by CONFIG.dynamic_mgmt: the account2 control runner
+                # (KC_DYNAMIC_MGMT=0) freezes pre-2026-08-26 static TP/SL behaviour.
+                if CONFIG.dynamic_mgmt:
+                    try:
+                        order_manager.manage_open_positions(bar, kc_values)
+                    except Exception as e:
+                        logger.error(f"[ORDER] manage_open_positions failed: {e}")
 
             record = {
                 "timestamp_utc": last_bucket.isoformat(),

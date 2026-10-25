@@ -52,6 +52,11 @@ class Signal:
     slope_blocked: bool = False
     regime: Optional[str] = None
     slope_norm: Optional[float] = None
+    # Entry-filter bookkeeping (2026-10-25): signals blocked by the optional
+    # direction / ATR-min filters are still emitted (flagged) so the JSONL
+    # funnel keeps full accounting of what the filter rejected.
+    direction_blocked: bool = False
+    atr_blocked: bool = False
 
 
 class SignalDetector:
@@ -231,7 +236,7 @@ class SignalDetector:
         """Construct a Signal dataclass instance with full traceability."""
         signal_id = f"sig_{bar.timestamp.strftime('%Y%m%d_%H%M')}_{direction.lower()}"
 
-        return Signal(
+        signal = Signal(
             signal_id=signal_id,
             timestamp_utc=bar.timestamp,
             direction=direction,
@@ -248,6 +253,20 @@ class SignalDetector:
             experiment_name=CONFIG.experiment_name,
             config_id=CONFIG.config_id,
         )
+        # Optional entry filters (2026-10-25): flag blocked signals, don't drop them.
+        if CONFIG.direction_filter and direction != CONFIG.direction_filter:
+            signal.direction_blocked = True
+            logger.info(
+                f"[SIGNAL] {signal_id} BLOCKED by direction filter "
+                f"(only {CONFIG.direction_filter} allowed)"
+            )
+        if CONFIG.atr_min > 0 and kc_values.atr < CONFIG.atr_min:
+            signal.atr_blocked = True
+            logger.info(
+                f"[SIGNAL] {signal_id} BLOCKED by ATR filter "
+                f"(atr={kc_values.atr:.1f} < {CONFIG.atr_min:g})"
+            )
+        return signal
 
 
 # Quick manual test
