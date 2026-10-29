@@ -332,8 +332,11 @@ class OrderManager:
             if age_bars < CONFIG.filled_bar_timeout:
                 continue
             signal = pos["signal"]
-            # Confirm the position is still open before closing
-            if signal is not None:
+            # Confirm the position is still open before closing.
+            # Market-fallback fills (2026-10-29) can be several points from
+            # signal.entry_price, so level-matching by signal fails — verify
+            # those by deal_id, same as adopted positions.
+            if signal is not None and pos.get("fill_level") is None:
                 current = self._find_open_position(signal)
             else:
                 # Adopted position: verify by deal_id against the open list
@@ -400,9 +403,13 @@ class OrderManager:
             if ig is None:
                 continue  # closed at broker (SL/TP) — timeout sweep will untrack
             is_long = pos.get("direction") == "BUY"
-            # Entry: prefer the signal; adopted positions fall back to broker level
+            # Entry: prefer actual fill level (market fallback), then the
+            # signal; adopted positions fall back to broker level
             if pos.get("signal") is not None:
-                entry = float(pos["signal"].entry_price)
+                try:
+                    entry = float(pos.get("fill_level") or pos["signal"].entry_price)
+                except (TypeError, ValueError):
+                    entry = float(pos["signal"].entry_price)
             else:
                 try:
                     entry = float(ig.get("level"))
@@ -711,6 +718,56 @@ class OrderManager:
                     )
                     break
 
+            # v6 market-order fallback (2026-10-29): if the STOP was rejected
+            # because price already traded through the entry (wrong side), the
+            # momentum condition has effectively triggered. Convert the retry
+            # to a MARKET order when fresh-quote slippage is within the cap
+            # AND the RR re-computed at the estimated fill still clears
+            # min_risk_reward. Otherwise re-POST the original STOP as before.
+            use_market_fallback = False
+            fallback_info = None
+            prev_reason = str(attempts[-1].get("reason") or "") if attempts else ""
+            if (
+                attempt > 1
+                and getattr(CONFIG, "market_fallback", False)
+                and "order_level" in prev_reason.lower()
+                and isinstance(market_snapshot, dict)
+                and entry_distance is not None
+                and entry_distance < 0  # negative = wrong side, both directions
+            ):
+                slippage = round(-entry_distance, 2)
+                est_fill = None
+                if signal.direction == "LONG":
+                    est_fill = market_snapshot.get("offer") or market_snapshot.get("OFR")
+                else:
+                    est_fill = market_snapshot.get("bid") or market_snapshot.get("BID")
+                rr_est = None
+                if est_fill is not None:
+                    est_fill = float(est_fill)
+                    target = signal.kc_lower if signal.direction == "SHORT" else signal.kc_upper
+                    risk = abs(est_fill - signal.stop_loss)
+                    reward = abs(target - est_fill)
+                    if risk > 0:
+                        rr_est = round(reward / risk, 4)
+                fallback_info = {
+                    "slippage_points": slippage,
+                    "estimated_fill": est_fill,
+                    "rr_at_estimated_fill": rr_est,
+                }
+                max_slip = getattr(CONFIG, "market_fallback_max_slippage", 10.0)
+                if slippage > max_slip:
+                    logger.info(
+                        f"[OrderManager] Market fallback skipped for {signal.signal_id}: "
+                        f"slippage {slippage} > {max_slip}"
+                    )
+                elif rr_est is None or rr_est < CONFIG.min_risk_reward:
+                    logger.info(
+                        f"[OrderManager] Market fallback skipped for {signal.signal_id}: "
+                        f"RR at estimated fill {rr_est} < {CONFIG.min_risk_reward}"
+                    )
+                else:
+                    use_market_fallback = True
+
             attempt_record = {
                 "attempt": attempt,
                 "market_price_snapshot": market_snapshot,
@@ -721,16 +778,27 @@ class OrderManager:
             }
 
             try:
-                response = self.ig_client.create_working_order(
-                    direction=ig_direction,
-                    epic="IX.D.DOW.IFS.IP",
-                    size=CONFIG.size,
-                    level=signal.entry_price,
-                    stop_level=signal.stop_loss,
-                    limit_level=signal.kc_lower if signal.direction == "SHORT" else signal.kc_upper,
-                    force_open=True,
-                    order_type="STOP",  # v2: momentum entries require STOP, not LIMIT
-                )
+                if use_market_fallback:
+                    response = self.ig_client.create_market_order(
+                        direction=ig_direction,
+                        epic="IX.D.DOW.IFS.IP",
+                        size=CONFIG.size,
+                        stop_level=signal.stop_loss,
+                        limit_level=signal.kc_lower if signal.direction == "SHORT" else signal.kc_upper,
+                    )
+                    attempt_record["order_type"] = "MARKET_FALLBACK"
+                    attempt_record["fallback"] = fallback_info
+                else:
+                    response = self.ig_client.create_working_order(
+                        direction=ig_direction,
+                        epic="IX.D.DOW.IFS.IP",
+                        size=CONFIG.size,
+                        level=signal.entry_price,
+                        stop_level=signal.stop_loss,
+                        limit_level=signal.kc_lower if signal.direction == "SHORT" else signal.kc_upper,
+                        force_open=True,
+                        order_type="STOP",  # v2: momentum entries require STOP, not LIMIT
+                    )
 
                 attempt_record["response"] = response
 
@@ -752,7 +820,22 @@ class OrderManager:
                         result["deal_id"] = attempt_record.get("deal_id")
                         result["response"] = response
                         self._mark_processed(signal.signal_id)
-                        self._register_pending(signal)
+                        if use_market_fallback and attempt_record.get("deal_id"):
+                            # Market order fills immediately: track as an open
+                            # position (timeout sweep + dyn mgmt match on
+                            # deal_id), NOT as a pending working order.
+                            result["entry_via"] = "market_fallback"
+                            self._positions.append({
+                                "signal": signal,
+                                "signal_id": signal.signal_id,
+                                "deal_id": attempt_record.get("deal_id"),
+                                "direction": ig_direction,
+                                "size": CONFIG.size,
+                                "fill_bar_ts": signal.timestamp_utc,
+                                "fill_level": response.get("level"),
+                            })
+                        else:
+                            self._register_pending(signal)
 
                         # NEW: capture the stable transaction reference for P&L reconciliation
                         if attempt_record.get("deal_id"):

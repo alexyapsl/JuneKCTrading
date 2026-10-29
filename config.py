@@ -58,6 +58,18 @@ class ExperimentConfig:
     # False (control, account2 shadow): original static TP/SL from signal time.
     dynamic_mgmt: bool = True
 
+    # === Market-Order Fallback (2026-10-29) ===
+    # When a STOP working order is broker-rejected because price has already
+    # traded through the entry (ATTACHED_ORDER_LEVEL_ERROR, wrong side), the
+    # momentum condition has effectively triggered. On the single retry,
+    # convert to a MARKET order when (a) fresh-quote slippage vs the intended
+    # entry is <= market_fallback_max_slippage points AND (b) RR re-computed
+    # at the estimated fill still clears min_risk_reward. Otherwise the retry
+    # re-POSTs the original STOP as before.
+    # NB: NOT mixed into the config hash, so experiment IDs stay stable.
+    market_fallback: bool = True
+    market_fallback_max_slippage: float = 10.0
+
     # === Entry Filters (2026-10-25 experiment) ===
     # direction_filter: "" = both directions; "LONG" or "SHORT" = that side only.
     # atr_min: 0 = disabled; otherwise only take signals with KC ATR >= atr_min.
@@ -154,6 +166,8 @@ class ExperimentConfig:
             "dynamic_mgmt": self.dynamic_mgmt,
             "direction_filter": self.direction_filter,
             "atr_min": self.atr_min,
+            "market_fallback": self.market_fallback,
+            "market_fallback_max_slippage": self.market_fallback_max_slippage,
             "version": self.version,
             "experiment_name": self.experiment_name,
             "config_id": self.config_id,
@@ -190,6 +204,8 @@ CONFIG = ExperimentConfig(
     dynamic_mgmt=os.environ.get("KC_DYNAMIC_MGMT", "1").lower() not in {"0", "false", "no"},
     direction_filter=os.environ.get("KC_DIRECTION_FILTER", ""),
     atr_min=float(os.environ.get("KC_ATR_MIN", "0")),
+    market_fallback=os.environ.get("KC_MARKET_FALLBACK", "1").lower() not in {"0", "false", "no"},
+    market_fallback_max_slippage=float(os.environ.get("KC_MARKET_FALLBACK_MAX_SLIPPAGE", "10")),
 )
 
 

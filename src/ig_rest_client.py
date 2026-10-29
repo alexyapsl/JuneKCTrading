@@ -106,7 +106,10 @@ class IGRestClient:
         """Detect IG session/token failures that are safe to fix via fresh login."""
         msg = str(exc).lower()
         return (
-            "error.security.client-token-invalid" in msg
+            # trading_ig raises TokenInvalidException() with NO message,
+            # so message matching alone can never catch it
+            type(exc).__name__ == "TokenInvalidException"
+            or "error.security.client-token-invalid" in msg
             or "client-token-invalid" in msg
             or "invalid session token" in msg
             or ("401" in msg and "token" in msg)
@@ -253,6 +256,93 @@ class IGRestClient:
         except Exception as e:
             logger.error(f"[IG] create_working_order failed: {e}")
             raise
+
+    def create_market_order(
+        self,
+        direction: str,
+        epic: str,
+        size: float,
+        stop_level: float,
+        limit_level: float,
+        currency_code: str = "GBP",
+        force_open: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Open a position at MARKET (OTC) with attached stop/limit.
+
+        Used by the OrderManager's wrong-side fallback (2026-10-29): when a
+        STOP working order is rejected because price already traded through
+        the entry, the retry converts to a market order rather than missing
+        the signal entirely.
+
+        Sends a minimal body via the CRUD layer (same lesson as
+        close_position 2026-09-04): no level/quoteId keys AT ALL — IG's
+        validators can reject a request merely for containing null keys.
+        """
+        self.ensure_session()
+        direction = direction.upper()
+        if direction not in ("BUY", "SELL"):
+            raise ValueError("direction must be 'BUY' or 'SELL'")
+        try:
+            logger.info(
+                f"[IG] Creating MARKET order: {direction} {size} {epic} "
+                f"| SL={stop_level} | TP={limit_level}"
+            )
+            response = self._call_with_reauth(
+                "create_market_order",
+                lambda: self._open_position_minimal(
+                    direction, epic, size, stop_level, limit_level,
+                    currency_code, force_open,
+                ),
+            )
+            if hasattr(response, "to_dict"):
+                response = response.to_dict()
+            logger.info(f"[IG] Market order response: {response}")
+            return response if isinstance(response, dict) else {"raw": str(response)}
+        except Exception as e:
+            logger.error(f"[IG] create_market_order failed: {e}")
+            raise
+
+    def _open_position_minimal(
+        self,
+        direction: str,
+        epic: str,
+        size: float,
+        stop_level: float,
+        limit_level: float,
+        currency_code: str,
+        force_open: bool,
+    ) -> Dict[str, Any]:
+        """
+        POST /positions/otc (v2) with a minimal MARKET-order body.
+
+        Omits level/quoteId entirely (IG treats them as mutually exclusive
+        with MARKET orderType and may count even null keys). Raises on
+        non-200, same contract as trading_ig.
+        """
+        import json
+
+        params = {
+            "currencyCode": currency_code,
+            "direction": direction,
+            "epic": epic,
+            "expiry": "-",
+            "forceOpen": force_open,
+            "guaranteedStop": False,
+            "orderType": "MARKET",
+            "size": str(size),
+            "stopLevel": stop_level,
+            "limitLevel": limit_level,
+        }
+        response = self.ig_service._req(
+            "create", "/positions/otc", params, None, "2"
+        )
+        if response.status_code != 200:
+            raise Exception(response.text)
+        deal_reference = json.loads(response.text).get("dealReference")
+        if not deal_reference:
+            return {"raw": response.text}
+        return self.ig_service.fetch_deal_by_deal_reference(deal_reference)
 
     # ------------------------------------------------------------------ #
     #                     FUTURE PHASE 2+ METHODS (STUBS)                #
@@ -512,21 +602,29 @@ class IGRestClient:
         self.ensure_session()
         try:
             logger.info(f"[IG] Fetching current price snapshot for {epic}")
-            response = None
-            # trading_ig.IGService uses lazy __getattr__, so hasattr is unreliable.
-            # Try the preferred method first, then fall back safely.
-            try:
-                if hasattr(self.ig_service, "fetch_market_by_epic"):
-                    response = self.ig_service.fetch_market_by_epic(epic)
-            except Exception:
-                response = None
 
-            if response is None:
+            def _fetch():
+                # trading_ig.IGService uses lazy __getattr__, so call directly
+                # and fall back on non-auth failures. Auth errors are
+                # re-raised so _call_with_reauth can force a fresh login —
+                # previously a stale token here just skipped the snapshot,
+                # and the subsequent order POST paid the re-login delay
+                # (root cause of the missed 2026-10-29 09:45 short).
                 try:
-                    if hasattr(self.ig_service, "fetch_current_prices"):
-                        response = self.ig_service.fetch_current_prices([epic])
-                except Exception:
-                    response = None
+                    return self.ig_service.fetch_market_by_epic(epic)
+                except Exception as e:
+                    if self._is_auth_error(e):
+                        raise
+                    logger.debug(f"[IG] fetch_market_by_epic failed: {e}")
+                try:
+                    return self.ig_service.fetch_current_prices([epic])
+                except Exception as e:
+                    if self._is_auth_error(e):
+                        raise
+                    logger.debug(f"[IG] fetch_current_prices failed: {e}")
+                return None
+
+            response = self._call_with_reauth("fetch_current_price", _fetch)
 
             if response is None:
                 logger.warning("[IG] No working price-fetch method on IGService; skipping snapshot")
